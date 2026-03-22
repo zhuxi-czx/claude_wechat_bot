@@ -8,15 +8,38 @@
 微信用户 ←→ 微信 ClawBot ←→ claude-wechat-bot ←→ Claude Code CLI（本地运行）
 ```
 
+## 功能特性
+
+- 文本对话：多轮上下文连续对话
+- 图片识别：发送图片给 Claude 分析
+- 流式回复：回复消息实时更新，无需等待完整生成
+- 输入状态：处理时微信显示"对方正在输入"
+- 运行时配置：在微信中切换模型、设置提示词
+
 ## 前提条件
 
 1. **微信**：升级至 **V8.0.70** 及以上版本
 2. 安装 [Node.js](https://nodejs.org/)（>= 18）
-3. 安装 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) 并完成认证：
+3. 安装并配置 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview)：
+
    ```bash
+   # 安装 Claude Code
    npm install -g @anthropic-ai/claude-code
-   claude  # 首次运行会引导登录认证
+
+   # 首次运行，完成登录认证
+   claude
    ```
+
+4. **配置 Claude Code 权限**（重要）：
+
+   本 bot 以非交互模式调用 Claude Code，需要预先信任工作目录。首次使用前，请在项目目录下运行一次 `claude` 命令，并在弹出的信任提示中选择信任该目录：
+
+   ```bash
+   cd claude_wechat_bot
+   claude    # 选择信任此目录，然后退出即可
+   ```
+
+   如需 Claude 读取用户发送的图片，bot 会自动通过 `--add-dir` 授权媒体目录访问。
 
 ## 快速开始
 
@@ -27,6 +50,9 @@ cd claude_wechat_bot
 
 # 安装依赖
 npm install
+
+# 信任工作目录（首次使用）
+claude    # 在提示中选择信任，然后 Ctrl+C 退出
 
 # 启动（首次运行会自动弹出二维码）
 npm run dev
@@ -79,7 +105,7 @@ npx tsx src/cli.ts start           # 重新启动，会自动弹出新二维码
 | `CLAUDE_MODEL` | `sonnet` | Claude 模型：`opus` / `sonnet` / `haiku` |
 | `CLAUDE_SYSTEM_PROMPT` | - | 自定义系统提示词 |
 | `CLAUDE_MAX_BUDGET` | `1.0` | 单次对话最大费用（美元） |
-| `CLAUDE_PERMISSION_MODE` | `default` | Claude CLI 权限模式 |
+| `CLAUDE_PERMISSION_MODE` | `default` | Claude CLI 权限模式（见下方说明） |
 | `CLAUDE_ALLOWED_TOOLS` | - | 允许的工具白名单（逗号分隔） |
 | `CLAUDE_TIMEOUT_MS` | `300000` | 单次查询超时（毫秒，默认 5 分钟） |
 | `CLAUDE_MAX_CONCURRENT` | `3` | 最大并发 Claude 进程数 |
@@ -87,13 +113,27 @@ npx tsx src/cli.ts start           # 重新启动，会自动弹出新二维码
 | `STATE_DIR` | `./data` | 数据存储目录 |
 | `LOG_LEVEL` | `info` | 日志级别：`debug` / `info` / `warn` / `error` |
 
+### 关于 Claude 权限模式
+
+`CLAUDE_PERMISSION_MODE` 控制 Claude Code 在处理消息时的工具使用权限：
+
+- `default`（默认）— Claude 使用工具时遵循已有的权限设置。确保已在项目目录下运行过 `claude` 并信任目录
+- `auto` — 自动推断并应用权限，更宽松
+
+如果发现 Claude 回复中提示"权限不足"或无法读取文件，可以尝试将权限模式改为 `auto`：
+
+```bash
+echo "CLAUDE_PERMISSION_MODE=auto" >> .env
+```
+
 ## 工作原理
 
 1. **扫码绑定** — 调用微信 ClawBot API 生成二维码，微信扫码后获取 bot_token，保存到本地
 2. **接收消息** — 通过长轮询（long-polling）持续获取微信用户发来的消息
-3. **调用 Claude** — 将消息转发给本地 `claude` CLI 子进程处理，支持完整的 Claude Code 能力
-4. **回复消息** — 将 Claude 的回复通过 ClawBot API 发回给微信用户
-5. **多轮对话** — 每个微信用户维护独立的 Claude 会话，支持上下文连续对话
+3. **图片处理** — 用户发送图片时，从 CDN 下载并 AES-128-ECB 解密，保存为临时文件
+4. **调用 Claude** — 将消息转发给本地 `claude` CLI 子进程处理，支持完整的 Claude Code 能力（包括图片分析）
+5. **流式回复** — Claude 边生成边更新微信消息，使用 `message_state` 实现单条消息实时刷新
+6. **多轮对话** — 每个微信用户维护独立的 Claude 会话，支持上下文连续对话
 
 ## 项目结构
 
@@ -103,6 +143,7 @@ src/
 ├── config.ts             # 配置加载
 ├── weixin/
 │   ├── client.ts         # 微信 ClawBot API 客户端
+│   ├── cdn.ts            # CDN 图片下载与 AES 解密
 │   ├── login.ts          # 扫码登录流程
 │   ├── poller.ts         # 消息长轮询
 │   └── types.ts          # API 类型定义
@@ -123,6 +164,20 @@ src/
 npm run build    # 编译 TypeScript
 npm start        # 运行编译后的版本
 ```
+
+## 常见问题
+
+**Q: Claude 提示权限不足，无法读取文件？**
+
+在项目目录下运行 `claude` 命令并信任目录，或在 `.env` 中设置 `CLAUDE_PERMISSION_MODE=auto`。
+
+**Q: 发送图片后 Claude 没有分析图片？**
+
+确认 Claude Code 已认证且权限配置正确。图片会下载到 `data/media/` 目录，bot 通过 `--add-dir` 自动授权 Claude 访问该目录。
+
+**Q: 启动后立即报 session timeout？**
+
+这是正常现象，bot 会自动重试。如果持续失败，尝试 `logout` 后重新 `login`。
 
 ## 反馈与联系
 
