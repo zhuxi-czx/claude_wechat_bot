@@ -14,6 +14,11 @@
     "login": "tsx src/cli.ts login"
   },
   "keywords": ["claude", "wechat", "bot", "claude-code", "clawbot"],
+  "author": {
+    "name": "zhuxi",
+    "email": "zhuxi.czx@gmail.com",
+    "url": "https://github.com/zhuxi-czx"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",

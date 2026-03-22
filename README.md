@@ -1,5 +1,7 @@
 # Claude WeChat Bot
 
+> Created by **[zhuxi](https://github.com/zhuxi-czx)** · [zhuxi.czx@gmail.com](mailto:zhuxi.czx@gmail.com)
+
 让 Claude Code 直接接入微信 —— 通过微信 ClawBot 开放能力，无需额外服务。
 
 ```
@@ -119,6 +121,13 @@ npm run build    # 编译 TypeScript
 npm start        # 运行编译后的版本
 ```
 
+## 反馈与联系
+
+如有问题或建议，欢迎：
+
+- 提交 [Issue](https://github.com/zhuxi-czx/claude_wechat_bot/issues)
+- 发送邮件至 [zhuxi.czx@gmail.com](mailto:zhuxi.czx@gmail.com)
+
 ## License
 
-MIT
+MIT License - Copyright (c) 2026 [zhuxi](https://github.com/zhuxi-czx)

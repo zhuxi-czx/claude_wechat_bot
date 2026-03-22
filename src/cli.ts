@@ -9,8 +9,10 @@ import { ClaudeBridge } from "./claude/bridge.js";
 import { SessionManager } from "./claude/session.js";
 import { BotController } from "./bot/controller.js";
 
+const BANNER = `Claude WeChat Bot v1.0.0 — by zhuxi <zhuxi.czx@gmail.com>`;
+
 const HELP = `
-claude-wechat-bot — Bridge Claude Code to WeChat
+${BANNER}
 
 Usage:
   claude-wechat-bot login        Scan QR code to bind WeChat
@@ -61,6 +63,7 @@ async function cmdStart(): Promise<void> {
     console.log();
   }
 
+  console.log(BANNER);
   log.info("Claude WeChat Bot starting...");
 
   const sessions = new SessionManager(store);
