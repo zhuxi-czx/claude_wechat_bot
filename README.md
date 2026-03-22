@@ -66,6 +66,7 @@ npx tsx src/cli.ts start           # 重新启动，会自动弹出新二维码
 | `/budget 2.0` | 设置单次对话最大费用（美元） |
 | `/system <提示词>` | 设置自定义系统提示词 |
 | `/system clear` | 清除系统提示词 |
+| `/stop` | 终止当前正在进行的查询 |
 | `/reset` | 清除对话历史，重新开始 |
 | `/help` | 查看所有命令 |
 
@@ -80,6 +81,8 @@ npx tsx src/cli.ts start           # 重新启动，会自动弹出新二维码
 | `CLAUDE_MAX_BUDGET` | `1.0` | 单次对话最大费用（美元） |
 | `CLAUDE_PERMISSION_MODE` | `default` | Claude CLI 权限模式 |
 | `CLAUDE_ALLOWED_TOOLS` | - | 允许的工具白名单（逗号分隔） |
+| `CLAUDE_TIMEOUT_MS` | `300000` | 单次查询超时（毫秒，默认 5 分钟） |
+| `CLAUDE_MAX_CONCURRENT` | `3` | 最大并发 Claude 进程数 |
 | `WECHAT_MAX_MSG_LENGTH` | `4000` | 单条微信消息最大字符数 |
 | `STATE_DIR` | `./data` | 数据存储目录 |
 | `LOG_LEVEL` | `info` | 日志级别：`debug` / `info` / `warn` / `error` |

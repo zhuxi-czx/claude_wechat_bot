@@ -15,4 +15,6 @@ export interface ClaudeConfig {
   maxBudget: number;
   permissionMode: string;
   allowedTools?: string;
+  timeoutMs: number;
+  maxConcurrent: number;
 }

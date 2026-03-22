@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import crypto from "node:crypto";
+import { createInterface } from "node:readline";
 import { log } from "../config.js";
 import type { ClaudeConfig, ClaudeResult } from "./types.js";
 
@@ -11,8 +12,12 @@ export class ClaudeBridge {
     this.config = config;
   }
 
-  private buildArgs(prompt: string, sessionId?: string, resume?: boolean): string[] {
-    const args = ["-p", prompt, "--output-format", "json"];
+  get activeCount(): number {
+    return this.activeProcesses.size;
+  }
+
+  private buildStreamArgs(prompt: string, sessionId?: string, resume?: boolean): string[] {
+    const args = ["-p", prompt, "--output-format", "stream-json", "--verbose"];
 
     if (resume && sessionId) {
       args.push("--resume", sessionId);
@@ -41,82 +46,123 @@ export class ClaudeBridge {
     return args;
   }
 
-  async query(prompt: string, sessionId?: string, resume = false): Promise<ClaudeResult> {
-    const args = this.buildArgs(prompt, sessionId, resume);
+  /**
+   * Stream query: yields partial text chunks as Claude generates them.
+   * The final return value is the ClaudeResult.
+   */
+  async *queryStream(
+    prompt: string,
+    sessionId?: string,
+    resume = false,
+  ): AsyncGenerator<string, ClaudeResult> {
+    if (this.activeProcesses.size >= this.config.maxConcurrent) {
+      throw new Error(`Too many concurrent queries (max ${this.config.maxConcurrent}). Please wait.`);
+    }
+
+    const args = this.buildStreamArgs(prompt, sessionId, resume);
     const processKey = sessionId || crypto.randomUUID();
 
-    log.debug(`Spawning: claude ${args.join(" ")}`);
+    log.debug(`Spawning stream: claude ${args.slice(0, 4).join(" ")}...`);
 
-    return new Promise<ClaudeResult>((resolve, reject) => {
-      const proc = spawn("claude", args, {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: { ...process.env },
-      });
+    const proc = spawn("claude", args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env },
+    });
 
-      this.activeProcesses.set(processKey, proc);
+    this.activeProcesses.set(processKey, proc);
+    proc.stdin?.end();
 
-      let stdout = "";
-      let stderr = "";
+    // Timeout handling
+    let timedOut = false;
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      proc.kill("SIGTERM");
+      log.warn(`Claude process timed out after ${this.config.timeoutMs}ms`);
+    }, this.config.timeoutMs);
 
-      proc.stdout?.on("data", (data: Buffer) => {
-        stdout += data.toString();
-      });
+    const rl = createInterface({ input: proc.stdout! });
+    let result: ClaudeResult | null = null;
+    let accumulatedText = "";
+    let lastYieldedLength = 0;
 
-      proc.stderr?.on("data", (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      proc.on("close", (code) => {
-        this.activeProcesses.delete(processKey);
-
-        if (code !== 0) {
-          log.error(`Claude exited with code ${code}: ${stderr}`);
-          reject(new Error(`Claude exited with code ${code}: ${stderr || "unknown error"}`));
-          return;
-        }
-
+    try {
+      for await (const line of rl) {
         try {
-          // stdout may contain non-JSON lines, find the result JSON
-          const lines = stdout.trim().split("\n");
-          let result: ClaudeResult | null = null;
+          const event = JSON.parse(line);
 
-          for (let i = lines.length - 1; i >= 0; i--) {
-            try {
-              const parsed = JSON.parse(lines[i]);
-              if (parsed.type === "result") {
-                result = parsed;
-                break;
+          if (event.type === "assistant" && event.message?.content) {
+            // Extract text from content blocks
+            for (const block of event.message.content) {
+              if (block.type === "text" && block.text) {
+                accumulatedText = block.text;
               }
-            } catch {
-              // not JSON, skip
             }
+            // Yield new text since last yield
+            if (accumulatedText.length > lastYieldedLength) {
+              const newText = accumulatedText.slice(lastYieldedLength);
+              lastYieldedLength = accumulatedText.length;
+              yield newText;
+            }
+          } else if (event.type === "result") {
+            result = event as ClaudeResult;
           }
+        } catch {
+          // non-JSON line, skip
+        }
+      }
+    } finally {
+      clearTimeout(timeoutTimer);
+      this.activeProcesses.delete(processKey);
+    }
 
-          if (!result) {
-            // Try parsing entire stdout as JSON
-            result = JSON.parse(stdout) as ClaudeResult;
-          }
+    if (timedOut) {
+      throw new Error("Claude query timed out");
+    }
 
-          log.debug(`Claude response: cost=$${result.total_cost_usd}, session=${result.session_id}`);
-          resolve(result);
-        } catch (err) {
-          log.error("Failed to parse Claude output:", stdout.slice(0, 500));
-          reject(new Error(`Failed to parse Claude response: ${err}`));
+    // Wait for process to fully exit
+    await new Promise<void>((resolve, reject) => {
+      proc.on("close", (code) => {
+        if (code !== 0 && !result) {
+          reject(new Error(`Claude exited with code ${code}`));
+        } else {
+          resolve();
         }
       });
-
       proc.on("error", (err) => {
-        this.activeProcesses.delete(processKey);
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          reject(new Error("Claude Code CLI not found. Please install it first: https://claude.com/claude-code"));
+          reject(new Error("Claude Code CLI not found. Install: https://claude.com/claude-code"));
         } else {
           reject(err);
         }
       });
-
-      // Close stdin immediately since we're using -p
-      proc.stdin?.end();
     });
+
+    if (!result) {
+      // Fallback: construct result from accumulated text
+      result = {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        duration_ms: 0,
+        result: accumulatedText,
+        session_id: sessionId || "",
+      };
+    }
+
+    log.debug(`Claude stream done: cost=$${result.total_cost_usd}, session=${result.session_id}`);
+    return result;
+  }
+
+  /**
+   * Simple one-shot query (non-streaming). Uses stream internally but collects full result.
+   */
+  async query(prompt: string, sessionId?: string, resume = false): Promise<ClaudeResult> {
+    const gen = this.queryStream(prompt, sessionId, resume);
+    let result: IteratorResult<string, ClaudeResult>;
+    do {
+      result = await gen.next();
+    } while (!result.done);
+    return result.value;
   }
 
   abort(sessionId: string): boolean {

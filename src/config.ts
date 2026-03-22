@@ -11,6 +11,8 @@ export interface Config {
     maxBudget: number;
     permissionMode: string;
     allowedTools?: string;
+    timeoutMs: number;
+    maxConcurrent: number;
   };
   stateDir: string;
   logLevel: "debug" | "info" | "warn" | "error";
@@ -28,6 +30,8 @@ export function loadConfig(): Config {
       maxBudget: parseFloat(process.env.CLAUDE_MAX_BUDGET || "1.0"),
       permissionMode: process.env.CLAUDE_PERMISSION_MODE || "default",
       allowedTools: process.env.CLAUDE_ALLOWED_TOOLS || undefined,
+      timeoutMs: parseInt(process.env.CLAUDE_TIMEOUT_MS || "300000", 10), // 5 min default
+      maxConcurrent: parseInt(process.env.CLAUDE_MAX_CONCURRENT || "3", 10),
     },
     stateDir: process.env.STATE_DIR || "./data",
     logLevel: (process.env.LOG_LEVEL as Config["logLevel"]) || "info",

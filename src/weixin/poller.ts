@@ -13,8 +13,10 @@ export class WeixinPoller extends EventEmitter {
   private store: StateStore;
   private running = false;
   private consecutiveErrors = 0;
+  private sessionExpiredCount = 0;
   private seenIds = new Set<string>();
   private readonly MAX_SEEN = 1000;
+  private readonly MAX_SESSION_EXPIRED_RETRIES = 5;
 
   constructor(client: WeixinClient, store: StateStore) {
     super();
@@ -40,7 +42,6 @@ export class WeixinPoller extends EventEmitter {
         const buf = this.store.getUpdatesBuf();
         const resp = await this.client.getUpdates(buf);
 
-        // Check for API errors: ret must be explicitly non-zero (undefined/0 = OK)
         const isError =
           (resp.ret !== undefined && resp.ret !== 0) ||
           (resp.errcode !== undefined && resp.errcode !== 0);
@@ -49,13 +50,23 @@ export class WeixinPoller extends EventEmitter {
           const isSessionExpired = resp.errcode === -14 || resp.ret === -14;
 
           if (isSessionExpired) {
-            // Session timeout — common after fresh login or idle period.
-            // Pause 30s then retry, don't exit.
-            log.warn("Session timeout (errcode -14), retrying in 30s...");
-            await sleep(30_000);
-            // Reset sync buf — server may need a fresh start
+            this.sessionExpiredCount++;
+
+            if (this.sessionExpiredCount >= this.MAX_SESSION_EXPIRED_RETRIES) {
+              log.error(
+                `Session expired ${this.sessionExpiredCount} times. Token may be invalid. ` +
+                `Run 'logout' then 'login' to re-bind.`,
+              );
+              this.emit("error", new Error("Token expired. Please re-login."));
+              this.running = false;
+              return;
+            }
+
+            log.warn(
+              `Session timeout (errcode -14), attempt ${this.sessionExpiredCount}/${this.MAX_SESSION_EXPIRED_RETRIES}, retrying in 10s...`,
+            );
             this.store.setUpdatesBuf("");
-            this.consecutiveErrors = 0;
+            await sleep(10_000);
             continue;
           }
 
@@ -74,7 +85,9 @@ export class WeixinPoller extends EventEmitter {
           continue;
         }
 
+        // Success — reset counters
         this.consecutiveErrors = 0;
+        this.sessionExpiredCount = 0;
 
         if (resp.get_updates_buf) {
           this.store.setUpdatesBuf(resp.get_updates_buf);
@@ -82,10 +95,8 @@ export class WeixinPoller extends EventEmitter {
 
         if (resp.msgs && resp.msgs.length > 0) {
           for (const msg of resp.msgs) {
-            // Only process user messages
             if (msg.message_type !== 1) continue;
 
-            // Deduplicate
             const dedupKey = msg.client_id || `${msg.from_user_id}:${msg.create_time_ms}`;
             if (this.seenIds.has(dedupKey)) continue;
 

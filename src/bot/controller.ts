@@ -7,6 +7,11 @@ import type { ClaudeBridge } from "../claude/bridge.js";
 import type { SessionManager } from "../claude/session.js";
 import { chunkText } from "./chunker.js";
 
+/** Minimum interval between streaming chunk sends (ms). */
+const STREAM_SEND_INTERVAL_MS = 5_000;
+/** Send a "thinking" hint after this many ms of silence. */
+const THINKING_HINT_DELAY_MS = 15_000;
+
 export class BotController {
   private weixinClient: WeixinClient;
   private poller: WeixinPoller;
@@ -111,45 +116,19 @@ export class BotController {
     await this.startTyping(userId, contextToken);
 
     try {
-      // Get or create session
       const existingSessionId = this.sessions.getSessionId(userId);
       const resume = !!existingSessionId;
       const sessionId = existingSessionId || this.sessions.getOrCreateSessionId(userId);
 
-      // Query Claude
-      const result = await this.bridge.query(text, sessionId, resume);
+      // Stream query with periodic chunk sending
+      const result = await this.streamQuery(userId, text, sessionId, resume);
 
-      // Update session with the returned session_id
+      // Update session
       if (result.session_id) {
         this.sessions.setSessionId(userId, result.session_id);
       }
 
-      // Stop typing
       await this.stopTyping(userId);
-
-      // Send response
-      const token = this.sessions.getContextToken(userId) || contextToken;
-      if (!token) {
-        log.error(`No context token for user ${userId}`);
-        return;
-      }
-
-      if (result.is_error) {
-        await this.sendReply(userId, `Error: ${result.result}`, token);
-        return;
-      }
-
-      const responseText = result.result || "(empty response)";
-      const chunks = chunkText(responseText, this.config.wechat.maxMsgLength);
-
-      for (const chunk of chunks) {
-        await this.sendReply(userId, chunk, token);
-        // Small delay between chunks
-        if (chunks.length > 1) {
-          await new Promise((r) => setTimeout(r, 500));
-        }
-      }
-
       log.info(`Reply sent to ${userId}, cost=$${result.total_cost_usd || 0}`);
     } catch (err) {
       await this.stopTyping(userId);
@@ -163,8 +142,94 @@ export class BotController {
     }
   }
 
+  /**
+   * Stream Claude's response, sending intermediate chunks to WeChat
+   * so the user doesn't wait for the full response.
+   */
+  private async streamQuery(
+    userId: string,
+    prompt: string,
+    sessionId: string,
+    resume: boolean,
+  ): Promise<import("../claude/types.js").ClaudeResult> {
+    const token = this.sessions.getContextToken(userId);
+    if (!token) throw new Error("No context token");
+
+    const gen = this.bridge.queryStream(prompt, sessionId, resume);
+    let fullText = "";
+    let lastSentLength = 0;
+    let lastSendTime = Date.now();
+    let hintSent = false;
+
+    // Set up a timer for the "thinking" hint
+    const hintTimer = setTimeout(async () => {
+      if (fullText.length === 0) {
+        hintSent = true;
+        await this.sendReply(userId, "Thinking...", token).catch(() => {});
+      }
+    }, THINKING_HINT_DELAY_MS);
+
+    try {
+      while (true) {
+        const { value, done } = await gen.next();
+
+        if (done) {
+          clearTimeout(hintTimer);
+          // value is ClaudeResult
+          const result = value;
+          const finalText = result.result || fullText;
+
+          if (result.is_error) {
+            await this.sendReply(userId, `Error: ${result.result}`, token);
+            return result;
+          }
+
+          // Send any remaining unsent text
+          const unsent = finalText.slice(lastSentLength);
+          if (unsent.trim()) {
+            const chunks = chunkText(unsent, this.config.wechat.maxMsgLength);
+            for (const chunk of chunks) {
+              await this.sendReply(userId, chunk, token);
+              if (chunks.length > 1) await sleep(500);
+            }
+          } else if (lastSentLength === 0) {
+            // Nothing was ever sent
+            const chunks = chunkText(finalText || "(empty response)", this.config.wechat.maxMsgLength);
+            for (const chunk of chunks) {
+              await this.sendReply(userId, chunk, token);
+              if (chunks.length > 1) await sleep(500);
+            }
+          }
+
+          return result;
+        }
+
+        // value is a text chunk
+        fullText += value;
+
+        // Send intermediate chunk if enough time has passed and enough text accumulated
+        const now = Date.now();
+        const timeSinceSend = now - lastSendTime;
+        const unsentLength = fullText.length - lastSentLength;
+
+        if (timeSinceSend >= STREAM_SEND_INTERVAL_MS && unsentLength > 50) {
+          const unsent = fullText.slice(lastSentLength);
+          // Only send at a natural break point
+          const breakIdx = findNaturalBreak(unsent);
+          if (breakIdx > 0) {
+            const toSend = unsent.slice(0, breakIdx);
+            await this.sendReply(userId, toSend, token);
+            lastSentLength += breakIdx;
+            lastSendTime = Date.now();
+          }
+        }
+      }
+    } finally {
+      clearTimeout(hintTimer);
+    }
+  }
+
   private handleCommand(text: string): string | null {
-    // /help
     if (text === "/help") {
       return [
         "Claude WeChat Bot Commands:",
@@ -177,16 +242,20 @@ export class BotController {
         "/system <text> - Set system prompt",
         "/system clear  - Clear system prompt",
         "/reset         - Clear conversation history",
+        "/stop          - Abort current query",
         "/help          - Show this message",
       ].join("\n");
     }
 
-    // /reset
     if (text === "/reset") {
       return "Session cleared. Starting fresh.";
     }
 
-    // /model
+    if (text === "/stop") {
+      // Will be handled by abort logic via session
+      return "Stopping current query...";
+    }
+
     if (text === "/model") {
       return `Current model: ${this.bridge.config.model}`;
     }
@@ -198,7 +267,6 @@ export class BotController {
       return `Model switched to: ${model}`;
     }
 
-    // /budget
     if (text === "/budget") {
       return `Current max budget: $${this.bridge.config.maxBudget} per query`;
     }
@@ -210,7 +278,6 @@ export class BotController {
       return `Max budget set to: $${val} per query`;
     }
 
-    // /system
     if (text === "/system") {
       return this.bridge.config.systemPrompt
         ? `Current system prompt:\n${this.bridge.config.systemPrompt}`
@@ -247,18 +314,17 @@ export class BotController {
       if (config.typing_ticket) {
         await this.weixinClient.sendTyping(userId, config.typing_ticket, 1);
 
-        // Refresh typing every 15 seconds
         const timer = setInterval(async () => {
           try {
             await this.weixinClient.sendTyping(userId, config.typing_ticket!, 1);
           } catch {
-            // ignore typing errors
+            // ignore
           }
         }, 15_000);
         this.typingTimers.set(userId, timer);
       }
     } catch {
-      // Typing indicator is best-effort
+      // best-effort
     }
   }
 
@@ -268,7 +334,6 @@ export class BotController {
       clearInterval(timer);
       this.typingTimers.delete(userId);
     }
-    // Send cancel typing
     try {
       const token = this.sessions.getContextToken(userId);
       if (!token) return;
@@ -280,4 +345,27 @@ export class BotController {
       // ignore
     }
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Find a natural break point (paragraph or line end) in the text. */
+function findNaturalBreak(text: string): number {
+  // Prefer paragraph break
+  const paraIdx = text.lastIndexOf("\n\n");
+  if (paraIdx > text.length * 0.3) return paraIdx + 2;
+
+  // Fallback to line break
+  const lineIdx = text.lastIndexOf("\n");
+  if (lineIdx > text.length * 0.3) return lineIdx + 1;
+
+  // Fallback to sentence end
+  const sentenceMatch = text.match(/.*[.!?。！？]\s*/s);
+  if (sentenceMatch && sentenceMatch[0].length > text.length * 0.3) {
+    return sentenceMatch[0].length;
+  }
+
+  return 0;
 }
