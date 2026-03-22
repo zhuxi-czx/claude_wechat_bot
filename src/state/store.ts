@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { log } from "../config.js";
+import type { WeixinAccountData } from "../weixin/types.js";
 
 export interface SessionData {
   sessionId: string;
@@ -120,6 +121,42 @@ export class StateStore {
       path.join(this.dir, "sessions.json"),
       JSON.stringify(sessionsObj, null, 2),
     );
+  }
+
+  /**
+   * Save WeChat account data (same structure as openclaw-weixin).
+   * Writes to: {stateDir}/accounts/{accountId}.json
+   * Updates index: {stateDir}/accounts.json
+   */
+  saveAccount(accountId: string, data: WeixinAccountData): void {
+    const accountsDir = path.join(this.dir, "accounts");
+    fs.mkdirSync(accountsDir, { recursive: true });
+
+    // Write account file
+    const accountPath = path.join(accountsDir, `${accountId}.json`);
+    this.writeFileAtomic(accountPath, JSON.stringify(data, null, 2));
+    try {
+      fs.chmodSync(accountPath, 0o600);
+    } catch {
+      // best-effort
+    }
+
+    // Update accounts index
+    const indexPath = path.join(this.dir, "accounts.json");
+    let index: string[] = [];
+    try {
+      if (fs.existsSync(indexPath)) {
+        index = JSON.parse(fs.readFileSync(indexPath, "utf-8"));
+      }
+    } catch {
+      // ignore
+    }
+    if (!index.includes(accountId)) {
+      index.push(accountId);
+      this.writeFileAtomic(indexPath, JSON.stringify(index, null, 2));
+    }
+
+    log.info(`Account saved: ${accountId}`);
   }
 
   private writeFileAtomic(filePath: string, content: string): void {

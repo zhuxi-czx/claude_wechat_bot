@@ -11,6 +11,7 @@ import type {
 const CHANNEL_VERSION = "1.0.0";
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 38_000;
 const DEFAULT_API_TIMEOUT_MS = 15_000;
+const QR_LONG_POLL_TIMEOUT_MS = 35_000;
 
 function randomWechatUin(): string {
   const uint32 = crypto.randomBytes(4).readUInt32BE(0);
@@ -134,36 +135,51 @@ export class WeixinClient {
     });
   }
 
-  async startLogin(): Promise<QrCodeResponse> {
-    const base = ensureTrailingSlash(this.baseUrl);
+  // ---- QR Login API ----
+
+  async fetchQrCode(baseUrl?: string): Promise<QrCodeResponse> {
+    const base = ensureTrailingSlash(baseUrl || this.baseUrl);
     const url = new URL("ilink/bot/get_bot_qrcode?bot_type=3", base).toString();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_API_TIMEOUT_MS);
 
     try {
+      log.debug("Fetching QR code...");
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(timer);
-      const text = await res.text();
-      return JSON.parse(text) as QrCodeResponse;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Failed to fetch QR code: ${res.status} ${body}`);
+      }
+      return (await res.json()) as QrCodeResponse;
     } catch (err) {
       clearTimeout(timer);
       throw err;
     }
   }
 
-  async pollLoginStatus(qrcode: string): Promise<QrCodeStatusResponse> {
-    const base = ensureTrailingSlash(this.baseUrl);
+  async pollQrStatus(qrcode: string, baseUrl?: string): Promise<QrCodeStatusResponse> {
+    const base = ensureTrailingSlash(baseUrl || this.baseUrl);
     const url = new URL(`ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`, base).toString();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
+    const timer = setTimeout(() => controller.abort(), QR_LONG_POLL_TIMEOUT_MS);
 
     try {
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url, {
+        headers: { "iLink-App-ClientVersion": "1" },
+        signal: controller.signal,
+      });
       clearTimeout(timer);
       const text = await res.text();
+      if (!res.ok) {
+        throw new Error(`QR status poll failed: ${res.status} ${text}`);
+      }
       return JSON.parse(text) as QrCodeStatusResponse;
     } catch (err) {
       clearTimeout(timer);
+      if (err instanceof Error && err.name === "AbortError") {
+        return { status: "wait" };
+      }
       throw err;
     }
   }

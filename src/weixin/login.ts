@@ -6,90 +6,127 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Normalize an ilink_bot_id like "6aae015d6e34@im.bot" to
+ * a filesystem-safe key like "6aae015d6e34-im-bot".
+ */
+function normalizeAccountId(raw: string): string {
+  return raw.replace(/@/g, "-").replace(/\./g, "-");
+}
+
+/**
+ * Perform WeChat QR code login.
+ *
+ * Flow matches the official openclaw-weixin-cli:
+ * 1. GET get_bot_qrcode?bot_type=3 → { qrcode, qrcode_img_content }
+ * 2. Display QR in terminal (qrcode_img_content is a URL)
+ * 3. Long-poll get_qrcode_status?qrcode={qrcode} until confirmed
+ * 4. Save token as "{ilink_bot_id}:{bot_token}" with baseUrl and userId
+ */
 export async function performLogin(client: WeixinClient, store: StateStore): Promise<string> {
   log.info("Starting WeChat QR login...");
 
-  const startResult = await client.startLogin();
-  if (!startResult.qrcode_url) {
-    throw new Error(`Failed to get QR code: ${startResult.message || "unknown error"}`);
+  const qrResponse = await client.fetchQrCode();
+  if (!qrResponse.qrcode || !qrResponse.qrcode_img_content) {
+    throw new Error("Failed to get QR code from server");
   }
 
-  console.log("\nScan the QR code below with WeChat to connect:\n");
+  console.log("\n使用微信扫描以下二维码，以完成连接：\n");
 
-  let qrcode: typeof import("qrcode-terminal");
+  // Display QR code in terminal
+  let qrterm: typeof import("qrcode-terminal");
   try {
-    qrcode = await import("qrcode-terminal");
+    qrterm = await import("qrcode-terminal");
   } catch {
     throw new Error("qrcode-terminal not installed");
   }
 
   await new Promise<void>((resolve) => {
-    qrcode.default.generate(startResult.qrcode_url!, { small: true }, (qr: string) => {
+    qrterm.default.generate(qrResponse.qrcode_img_content, { small: true }, (qr: string) => {
       console.log(qr);
       resolve();
     });
   });
 
-  console.log("Waiting for scan...\n");
+  console.log("等待扫码...\n");
 
   const timeoutMs = 480_000;
-  const startTime = Date.now();
-  let currentQrcode = startResult.qrcode_url!;
+  const deadline = Date.now() + timeoutMs;
+  let currentQrcode = qrResponse.qrcode;
+  let scannedPrinted = false;
   let refreshCount = 0;
+  const MAX_REFRESH = 3;
 
-  while (Date.now() - startTime < timeoutMs) {
-    const status = await client.pollLoginStatus(currentQrcode);
+  while (Date.now() < deadline) {
+    const status = await client.pollQrStatus(currentQrcode);
 
     switch (status.status) {
       case "wait":
         break;
 
       case "scaned":
-        log.info("QR code scanned, please confirm on your phone...");
+        if (!scannedPrinted) {
+          console.log("👀 已扫码，请在微信上确认...");
+          scannedPrinted = true;
+        }
         break;
 
-      case "confirmed":
-        if (status.bot_token) {
-          log.info("Login successful!");
-          store.setToken(status.bot_token);
-          return status.bot_token;
+      case "confirmed": {
+        if (!status.ilink_bot_id || !status.bot_token) {
+          throw new Error("Login confirmed but missing ilink_bot_id or bot_token");
         }
-        throw new Error("Login confirmed but no token received");
 
-      case "expired":
+        // Build the full token in the same format as openclaw-weixin:
+        // "{ilink_bot_id}:{bot_token}"
+        const fullToken = `${status.ilink_bot_id}:${status.bot_token}`;
+        const accountId = normalizeAccountId(status.ilink_bot_id);
+        const baseUrl = status.baseurl || "https://ilinkai.weixin.qq.com";
+
+        // Save account data (same structure as openclaw-weixin)
+        store.saveAccount(accountId, {
+          token: fullToken,
+          savedAt: new Date().toISOString(),
+          baseUrl,
+          userId: status.ilink_user_id,
+        });
+
+        // Save the token for the main bot to use
+        store.setToken(fullToken);
+
+        console.log("\n✅ 与微信连接成功！");
+        log.info(`Login successful: accountId=${accountId}, userId=${status.ilink_user_id}`);
+
+        return fullToken;
+      }
+
+      case "expired": {
         refreshCount++;
-        if (refreshCount > 3) {
+        if (refreshCount > MAX_REFRESH) {
           throw new Error("QR code expired too many times");
         }
-        log.info("QR code expired, refreshing...");
-        if (status.qrcode) {
-          currentQrcode = status.qrcode;
-          await new Promise<void>((resolve) => {
-            qrcode.default.generate(status.qrcode!, { small: true }, (qr: string) => {
-              console.log(qr);
-              resolve();
-            });
-          });
-        } else {
-          const newStart = await client.startLogin();
-          if (!newStart.qrcode_url) {
-            throw new Error("Failed to refresh QR code");
-          }
-          currentQrcode = newStart.qrcode_url;
-          await new Promise<void>((resolve) => {
-            qrcode.default.generate(newStart.qrcode_url!, { small: true }, (qr: string) => {
-              console.log(qr);
-              resolve();
-            });
-          });
-        }
-        break;
 
-      default:
-        log.debug(`Unknown login status: ${status.status}`);
+        console.log(`\n⏳ 二维码已过期，正在刷新...(${refreshCount}/${MAX_REFRESH})`);
+
+        const newQr = await client.fetchQrCode();
+        if (!newQr.qrcode || !newQr.qrcode_img_content) {
+          throw new Error("Failed to refresh QR code");
+        }
+
+        currentQrcode = newQr.qrcode;
+        scannedPrinted = false;
+
+        console.log("🔄 新二维码已生成，请重新扫描\n");
+        await new Promise<void>((resolve) => {
+          qrterm.default.generate(newQr.qrcode_img_content, { small: true }, (qr: string) => {
+            console.log(qr);
+            resolve();
+          });
+        });
+        break;
+      }
     }
 
-    await sleep(2000);
+    await sleep(1000);
   }
 
   throw new Error("Login timed out");

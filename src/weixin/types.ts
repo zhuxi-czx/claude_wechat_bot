@@ -26,11 +26,6 @@ export interface WeixinMessage {
   context_token?: string;
 }
 
-export interface GetUpdatesRequest {
-  get_updates_buf: string;
-  base_info: BaseInfo;
-}
-
 export interface GetUpdatesResponse {
   ret?: number;
   errcode?: number;
@@ -40,38 +35,31 @@ export interface GetUpdatesResponse {
   longpolling_timeout_ms?: number;
 }
 
-export interface SendMessageRequest {
-  msg: WeixinMessage;
-  base_info: BaseInfo;
-}
-
 export interface GetConfigResponse {
   ret?: number;
   errmsg?: string;
   typing_ticket?: string;
 }
 
-export interface SendTypingRequest {
-  ilink_user_id: string;
-  typing_ticket: string;
-  status: number; // 1=typing, 2=cancel
-  base_info: BaseInfo;
-}
-
+// QR login: GET ilink/bot/get_bot_qrcode?bot_type=3
 export interface QrCodeResponse {
-  ret?: number;
-  qrcode_url?: string;
-  session_key?: string;
-  message?: string;
+  qrcode: string;            // key for polling status
+  qrcode_img_content: string; // URL to QR code image (used for terminal display)
 }
 
+// QR login: GET ilink/bot/get_qrcode_status?qrcode={qrcode}
 export interface QrCodeStatusResponse {
-  ret?: number;
-  status?: string; // "wait", "scaned", "expired", "confirmed"
+  status: "wait" | "scaned" | "confirmed" | "expired";
   bot_token?: string;
-  account_id?: string;
-  user_id?: string;
-  base_url?: string;
-  qrcode?: string;
-  message?: string;
+  ilink_bot_id?: string;     // e.g. "6aae015d6e34@im.bot"
+  baseurl?: string;          // e.g. "https://ilinkai.weixin.qq.com"
+  ilink_user_id?: string;    // e.g. "o9cq801y8at...@im.wechat"
+}
+
+// Stored account data (per-account JSON file)
+export interface WeixinAccountData {
+  token: string;             // "{ilink_bot_id}:{bot_token}"
+  savedAt: string;
+  baseUrl: string;
+  userId?: string;           // ilink_user_id of the person who scanned
 }
