@@ -69,23 +69,19 @@ npx tsx src/cli.ts logout          # 解除绑定
 npx tsx src/cli.ts status          # 查看当前状态
 ```
 
-### 重新绑定微信
-
-```bash
-npx tsx src/cli.ts logout          # 先解除
-npx tsx src/cli.ts start           # 重新启动，会自动弹出新二维码
-```
-
 ### 后台运行
 
 默认在前台运行，关闭终端服务会停止。如需后台常驻运行：
 
 ```bash
 # 后台启动，日志输出到 bot.log
-nohup npm run dev > bot.log 2>&1 &
+nohup npx tsx src/cli.ts start > bot.log 2>&1 & disown
 
 # 查看日志
 tail -f bot.log
+
+# 检查是否在运行
+pgrep -f "tsx src/cli.ts" && echo "running" || echo "stopped"
 
 # 停止服务
 kill $(pgrep -f "tsx src/cli.ts")
@@ -94,6 +90,24 @@ kill $(pgrep -f "tsx src/cli.ts")
 ### 停止服务
 
 前台运行时按 `Ctrl+C` 即可。
+
+### 重新绑定微信
+
+> **重要**：停止服务后 token 会失效，重启时需要重新扫码绑定。
+
+```bash
+# 1. 停止服务
+kill $(pgrep -f "tsx src/cli.ts")
+
+# 2. 清除旧凭证
+npx tsx src/cli.ts logout
+
+# 3. 前台启动并扫码（会自动弹出二维码）
+npx tsx src/cli.ts start
+
+# 4. 扫码成功后，Ctrl+C 停止前台进程，改为后台运行
+nohup npx tsx src/cli.ts start > bot.log 2>&1 & disown
+```
 
 ## 微信内可用命令
 
@@ -190,9 +204,17 @@ npm start        # 运行编译后的版本
 
 确认 Claude Code 已认证且权限配置正确。图片会下载到 `data/media/` 目录，bot 通过 `--add-dir` 自动授权 Claude 访问该目录。
 
+**Q: 重启后微信回复 "Error: undefined"？**
+
+停止服务后 token 会失效。需要重新扫码绑定：`logout` → `start`（见上方"重新绑定微信"步骤）。
+
 **Q: 启动后立即报 session timeout？**
 
-这是正常现象，bot 会自动重试。如果持续失败，尝试 `logout` 后重新 `login`。
+这是正常现象，bot 会自动重试。如果持续失败，尝试 `logout` 后重新扫码。
+
+**Q: 关闭终端后服务停了？**
+
+使用 `nohup ... & disown` 方式后台运行（见上方"后台运行"步骤）。
 
 ## 反馈与联系
 
