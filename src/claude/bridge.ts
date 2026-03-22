@@ -4,7 +4,7 @@ import { log } from "../config.js";
 import type { ClaudeConfig, ClaudeResult } from "./types.js";
 
 export class ClaudeBridge {
-  private config: ClaudeConfig;
+  config: ClaudeConfig;
   private activeProcesses = new Map<string, ChildProcess>();
 
   constructor(config: ClaudeConfig) {

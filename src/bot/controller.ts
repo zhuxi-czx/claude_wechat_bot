@@ -96,24 +96,13 @@ export class BotController {
     log.info(`Message from ${userId}: ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`);
 
     // Handle commands
-    if (text === "/reset") {
-      this.sessions.clearSession(userId);
+    const cmdResult = this.handleCommand(text);
+    if (cmdResult !== null) {
       if (contextToken) {
-        await this.sendReply(userId, "Session cleared. Starting fresh.", contextToken);
+        await this.sendReply(userId, cmdResult, contextToken);
       }
-      return;
-    }
-
-    if (text === "/help") {
-      const helpText = [
-        "Claude WeChat Bot Commands:",
-        "/reset - Clear conversation history",
-        "/help - Show this help message",
-        "",
-        "Send any text to chat with Claude.",
-      ].join("\n");
-      if (contextToken) {
-        await this.sendReply(userId, helpText, contextToken);
+      if (text === "/reset") {
+        this.sessions.clearSession(userId);
       }
       return;
     }
@@ -172,6 +161,73 @@ export class BotController {
         await this.sendReply(userId, `Sorry, an error occurred: ${errMsg.slice(0, 200)}`, token).catch(() => {});
       }
     }
+  }
+
+  private handleCommand(text: string): string | null {
+    // /help
+    if (text === "/help") {
+      return [
+        "Claude WeChat Bot Commands:",
+        "",
+        "/model         - Show current model",
+        "/model <name>  - Switch model (opus/sonnet/haiku)",
+        "/budget        - Show current budget",
+        "/budget <n>    - Set max budget per query (USD)",
+        "/system        - Show current system prompt",
+        "/system <text> - Set system prompt",
+        "/system clear  - Clear system prompt",
+        "/reset         - Clear conversation history",
+        "/help          - Show this message",
+      ].join("\n");
+    }
+
+    // /reset
+    if (text === "/reset") {
+      return "Session cleared. Starting fresh.";
+    }
+
+    // /model
+    if (text === "/model") {
+      return `Current model: ${this.bridge.config.model}`;
+    }
+    if (text.startsWith("/model ")) {
+      const model = text.slice(7).trim();
+      if (!model) return `Current model: ${this.bridge.config.model}`;
+      this.bridge.config.model = model;
+      log.info(`Model switched to: ${model}`);
+      return `Model switched to: ${model}`;
+    }
+
+    // /budget
+    if (text === "/budget") {
+      return `Current max budget: $${this.bridge.config.maxBudget} per query`;
+    }
+    if (text.startsWith("/budget ")) {
+      const val = parseFloat(text.slice(8).trim());
+      if (isNaN(val) || val <= 0) return "Invalid budget value. Use a positive number, e.g. /budget 2.0";
+      this.bridge.config.maxBudget = val;
+      log.info(`Budget set to: $${val}`);
+      return `Max budget set to: $${val} per query`;
+    }
+
+    // /system
+    if (text === "/system") {
+      return this.bridge.config.systemPrompt
+        ? `Current system prompt:\n${this.bridge.config.systemPrompt}`
+        : "No system prompt set.";
+    }
+    if (text.startsWith("/system ")) {
+      const prompt = text.slice(8).trim();
+      if (prompt === "clear") {
+        this.bridge.config.systemPrompt = undefined;
+        return "System prompt cleared.";
+      }
+      this.bridge.config.systemPrompt = prompt;
+      log.info(`System prompt updated`);
+      return `System prompt set to:\n${prompt}`;
+    }
+
+    return null;
   }
 
   private async sendReply(userId: string, text: string, contextToken: string): Promise<void> {
