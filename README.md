@@ -8,8 +8,9 @@
 
 ## 前提条件
 
-1. 安装 [Node.js](https://nodejs.org/)（>= 18）
-2. 安装 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) 并完成认证：
+1. **微信**：升级至 **V8.0.70** 及以上版本
+2. 安装 [Node.js](https://nodejs.org/)（>= 18）
+3. 安装 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) 并完成认证：
    ```bash
    npm install -g @anthropic-ai/claude-code
    claude  # 首次运行会引导登录认证
@@ -29,7 +30,7 @@ npm install
 npm run dev
 ```
 
-终端会显示一个二维码，用微信扫码确认后，即可在微信中与 Claude 对话。
+终端会显示一个二维码。打开微信，进入 **「我」→「设置」→「插件」→「微信 ClawBot」**，使用其中的扫一扫功能扫描终端二维码并确认，即可在微信中与 Claude 对话。
 
 ## 使用方式
 
