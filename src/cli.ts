@@ -74,7 +74,7 @@ async function cmdStart(): Promise<void> {
   const sessions = new SessionManager(store);
   const bridge = new ClaudeBridge(config.claude);
   const poller = new WeixinPoller(client, store);
-  const controller = new BotController(client, poller, bridge, sessions, config);
+  const controller = new BotController(client, poller, bridge, sessions, store, config);
 
   // Graceful shutdown
   let shuttingDown = false;

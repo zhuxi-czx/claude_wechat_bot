@@ -14,6 +14,8 @@ export class StateStore {
   private token: string | undefined;
   private updatesBuf: string = "";
   private sessions: Map<string, SessionData> = new Map();
+  private allowedUsers: Set<string> = new Set();
+  private adminUser: string | undefined;
   private dirty = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -58,6 +60,20 @@ export class StateStore {
         log.warn("Failed to load sessions.json");
       }
     }
+
+    // Whitelist
+    const whitelistPath = path.join(this.dir, "whitelist.json");
+    if (fs.existsSync(whitelistPath)) {
+      try {
+        const data = JSON.parse(fs.readFileSync(whitelistPath, "utf-8"));
+        if (data.admin) this.adminUser = data.admin;
+        if (Array.isArray(data.users)) {
+          for (const u of data.users) this.allowedUsers.add(u);
+        }
+      } catch {
+        log.warn("Failed to load whitelist.json");
+      }
+    }
   }
 
   getToken(): string | undefined {
@@ -94,6 +110,52 @@ export class StateStore {
   clearSession(userId: string): void {
     this.sessions.delete(userId);
     this.markDirty();
+  }
+
+  // ---- Whitelist ----
+
+  getAdmin(): string | undefined {
+    return this.adminUser;
+  }
+
+  setAdmin(userId: string): void {
+    this.adminUser = userId;
+    this.allowedUsers.add(userId);
+    this.saveWhitelist();
+  }
+
+  isAllowed(userId: string): boolean {
+    // No whitelist configured = allow everyone
+    if (this.allowedUsers.size === 0 && !this.adminUser) return true;
+    return this.allowedUsers.has(userId);
+  }
+
+  addAllowedUser(userId: string): void {
+    this.allowedUsers.add(userId);
+    this.saveWhitelist();
+  }
+
+  removeAllowedUser(userId: string): void {
+    this.allowedUsers.delete(userId);
+    this.saveWhitelist();
+  }
+
+  getAllowedUsers(): string[] {
+    return [...this.allowedUsers];
+  }
+
+  isAdmin(userId: string): boolean {
+    return this.adminUser === userId;
+  }
+
+  private saveWhitelist(): void {
+    this.writeFileAtomic(
+      path.join(this.dir, "whitelist.json"),
+      JSON.stringify({
+        admin: this.adminUser,
+        users: [...this.allowedUsers],
+      }, null, 2),
+    );
   }
 
   private markDirty(): void {
