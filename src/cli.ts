@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import path from "node:path";
 import { loadConfig, setLogLevel, log } from "./config.js";
 import { StateStore } from "./state/store.js";
 import { WeixinClient } from "./weixin/client.js";
@@ -65,6 +66,10 @@ async function cmdStart(): Promise<void> {
 
   console.log(BANNER);
   log.info("Claude WeChat Bot starting...");
+
+  // Grant Claude access to the media directory for image analysis
+  const mediaDir = path.resolve(config.stateDir, "media");
+  config.claude.addDirs = [mediaDir];
 
   const sessions = new SessionManager(store);
   const bridge = new ClaudeBridge(config.claude);

@@ -17,4 +17,5 @@ export interface ClaudeConfig {
   allowedTools?: string;
   timeoutMs: number;
   maxConcurrent: number;
+  addDirs?: string[];
 }

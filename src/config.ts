@@ -13,6 +13,7 @@ export interface Config {
     allowedTools?: string;
     timeoutMs: number;
     maxConcurrent: number;
+    addDirs?: string[];
   };
   stateDir: string;
   logLevel: "debug" | "info" | "warn" | "error";

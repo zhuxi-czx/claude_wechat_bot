@@ -43,6 +43,11 @@ export class ClaudeBridge {
       args.push("--allowedTools", this.config.allowedTools);
     }
 
+    // Grant access to additional directories (e.g., media download dir)
+    if (this.config.addDirs && this.config.addDirs.length > 0) {
+      args.push("--add-dir", ...this.config.addDirs);
+    }
+
     return args;
   }
 
