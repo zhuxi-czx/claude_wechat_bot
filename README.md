@@ -76,9 +76,24 @@ npx tsx src/cli.ts logout          # 先解除
 npx tsx src/cli.ts start           # 重新启动，会自动弹出新二维码
 ```
 
+### 后台运行
+
+默认在前台运行，关闭终端服务会停止。如需后台常驻运行：
+
+```bash
+# 后台启动，日志输出到 bot.log
+nohup npm run dev > bot.log 2>&1 &
+
+# 查看日志
+tail -f bot.log
+
+# 停止服务
+kill $(pgrep -f "tsx src/cli.ts")
+```
+
 ### 停止服务
 
-按 `Ctrl+C` 即可。
+前台运行时按 `Ctrl+C` 即可。
 
 ## 微信内可用命令
 
