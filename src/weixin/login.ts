@@ -76,9 +76,9 @@ export async function performLogin(client: WeixinClient, store: StateStore): Pro
           throw new Error("Login confirmed but missing ilink_bot_id or bot_token");
         }
 
-        // Build the full token in the same format as openclaw-weixin:
-        // "{ilink_bot_id}:{bot_token}"
-        const fullToken = `${status.ilink_bot_id}:${status.bot_token}`;
+        // bot_token from server is already in "{ilink_bot_id}:{secret}" format
+        // Use it directly, same as openclaw-weixin
+        const fullToken = status.bot_token;
         const accountId = normalizeAccountId(status.ilink_bot_id);
         const baseUrl = status.baseurl || "https://ilinkai.weixin.qq.com";
 

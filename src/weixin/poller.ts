@@ -8,11 +8,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export interface WeixinPollerEvents {
-  message: [msg: WeixinMessage];
-  error: [err: Error];
-}
-
 export class WeixinPoller extends EventEmitter {
   private client: WeixinClient;
   private store: StateStore;
@@ -45,17 +40,33 @@ export class WeixinPoller extends EventEmitter {
         const buf = this.store.getUpdatesBuf();
         const resp = await this.client.getUpdates(buf);
 
-        if (resp.ret !== 0) {
-          log.warn(`getUpdates returned ret=${resp.ret} errcode=${resp.errcode} errmsg=${resp.errmsg}`);
-          if (resp.errcode === -14) {
-            log.error("Session expired. Please restart and re-login.");
-            this.emit("error", new Error("Session expired (errcode -14)"));
-            this.running = false;
-            return;
+        // Check for API errors: ret must be explicitly non-zero (undefined/0 = OK)
+        const isError =
+          (resp.ret !== undefined && resp.ret !== 0) ||
+          (resp.errcode !== undefined && resp.errcode !== 0);
+
+        if (isError) {
+          const isSessionExpired = resp.errcode === -14 || resp.ret === -14;
+
+          if (isSessionExpired) {
+            // Session timeout — common after fresh login or idle period.
+            // Pause 30s then retry, don't exit.
+            log.warn("Session timeout (errcode -14), retrying in 30s...");
+            await sleep(30_000);
+            // Reset sync buf — server may need a fresh start
+            this.store.setUpdatesBuf("");
+            this.consecutiveErrors = 0;
+            continue;
           }
+
           this.consecutiveErrors++;
+          log.warn(
+            `getUpdates error: ret=${resp.ret} errcode=${resp.errcode} errmsg=${resp.errmsg} (${this.consecutiveErrors}/3)`,
+          );
+
           if (this.consecutiveErrors >= 3) {
             log.warn("Too many consecutive errors, backing off 30s");
+            this.consecutiveErrors = 0;
             await sleep(30_000);
           } else {
             await sleep(3_000);
@@ -93,6 +104,7 @@ export class WeixinPoller extends EventEmitter {
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
 
         if (this.consecutiveErrors >= 3) {
+          this.consecutiveErrors = 0;
           await sleep(30_000);
         } else {
           await sleep(3_000);

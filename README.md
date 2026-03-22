@@ -1,83 +1,113 @@
 # Claude WeChat Bot
 
-Bridge [Claude Code](https://claude.com/claude-code) CLI directly to WeChat via the ClawBot API.
+让 Claude Code 直接接入微信 —— 通过微信 ClawBot 开放能力，无需额外服务。
 
 ```
-WeChat User ←→ WeChat ClawBot API ←→ claude-wechat-bot ←→ Claude Code CLI
+微信用户 ←→ 微信 ClawBot ←→ claude-wechat-bot ←→ Claude Code CLI（本地运行）
 ```
 
-## Prerequisites
+## 前提条件
 
-- [Node.js](https://nodejs.org/) >= 18
-- [Claude Code](https://claude.com/claude-code) CLI installed and authenticated
+1. 安装 [Node.js](https://nodejs.org/)（>= 18）
+2. 安装 [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) 并完成认证：
+   ```bash
+   npm install -g @anthropic-ai/claude-code
+   claude  # 首次运行会引导登录认证
+   ```
 
-## Quick Start
+## 快速开始
 
 ```bash
-# Step 1: Bind WeChat (scan QR code)
-npx claude-wechat-bot login
-
-# Step 2: Start the bot
-npx claude-wechat-bot start
-```
-
-That's it. Scan the QR code with WeChat, and you'll be able to chat with Claude directly in WeChat.
-
-## Commands
-
-```bash
-claude-wechat-bot login      # Scan QR code to bind WeChat
-claude-wechat-bot start      # Start the bot (auto-login if needed)
-claude-wechat-bot logout     # Clear saved credentials
-claude-wechat-bot status     # Show current status
-```
-
-## Install Globally (Optional)
-
-```bash
-npm install -g claude-wechat-bot
-claude-wechat-bot login
-claude-wechat-bot start
-```
-
-## Configuration
-
-All configuration is via environment variables or `.env` file:
-
-| Variable | Default | Description |
-|---|---|---|
-| `CLAUDE_MODEL` | `sonnet` | Model: `opus`, `sonnet`, `haiku` |
-| `CLAUDE_SYSTEM_PROMPT` | - | Custom system prompt |
-| `CLAUDE_MAX_BUDGET` | `1.0` | Max cost per query (USD) |
-| `CLAUDE_PERMISSION_MODE` | `default` | Claude CLI permission mode |
-| `CLAUDE_ALLOWED_TOOLS` | - | Tool whitelist (comma-separated) |
-| `WECHAT_MAX_MSG_LENGTH` | `4000` | Max chars per message |
-| `STATE_DIR` | `./data` | Data directory |
-| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
-
-## WeChat Chat Commands
-
-- `/reset` — Clear conversation history
-- `/help` — Show commands
-
-## How It Works
-
-1. `login` calls the WeChat ClawBot API to generate a QR code
-2. After scanning, a `bot_token` is saved locally
-3. `start` begins long-polling for new WeChat messages
-4. Each message is forwarded to `claude -p` (Claude Code CLI) as a subprocess
-5. Claude's response is sent back to the WeChat user via `sendMessage` API
-6. Per-user sessions are maintained via `--resume` for multi-turn conversations
-
-## Development
-
-```bash
+# 克隆项目
 git clone https://github.com/zhuxi-czx/claude_wechat_bot.git
 cd claude_wechat_bot
+
+# 安装依赖
 npm install
-npm run dev          # tsx hot-reload
-npm run build        # compile TypeScript
-npm start            # run compiled version
+
+# 启动（首次运行会自动弹出二维码）
+npm run dev
+```
+
+终端会显示一个二维码，用微信扫码确认后，即可在微信中与 Claude 对话。
+
+## 使用方式
+
+```bash
+npm run dev                        # 启动 bot（首次自动登录）
+npx tsx src/cli.ts login           # 单独执行扫码绑定
+npx tsx src/cli.ts logout          # 解除绑定
+npx tsx src/cli.ts status          # 查看当前状态
+```
+
+### 重新绑定微信
+
+```bash
+npx tsx src/cli.ts logout          # 先解除
+npx tsx src/cli.ts start           # 重新启动，会自动弹出新二维码
+```
+
+### 停止服务
+
+按 `Ctrl+C` 即可。
+
+## 微信内可用命令
+
+在微信对话中发送：
+
+- `/reset` — 清除对话历史，重新开始
+- `/help` — 查看可用命令
+
+## 配置项
+
+在项目根目录创建 `.env` 文件（可参考 `.env.example`）：
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `CLAUDE_MODEL` | `sonnet` | Claude 模型：`opus` / `sonnet` / `haiku` |
+| `CLAUDE_SYSTEM_PROMPT` | - | 自定义系统提示词 |
+| `CLAUDE_MAX_BUDGET` | `1.0` | 单次对话最大费用（美元） |
+| `CLAUDE_PERMISSION_MODE` | `default` | Claude CLI 权限模式 |
+| `CLAUDE_ALLOWED_TOOLS` | - | 允许的工具白名单（逗号分隔） |
+| `WECHAT_MAX_MSG_LENGTH` | `4000` | 单条微信消息最大字符数 |
+| `STATE_DIR` | `./data` | 数据存储目录 |
+| `LOG_LEVEL` | `info` | 日志级别：`debug` / `info` / `warn` / `error` |
+
+## 工作原理
+
+1. **扫码绑定** — 调用微信 ClawBot API 生成二维码，微信扫码后获取 bot_token，保存到本地
+2. **接收消息** — 通过长轮询（long-polling）持续获取微信用户发来的消息
+3. **调用 Claude** — 将消息转发给本地 `claude` CLI 子进程处理，支持完整的 Claude Code 能力
+4. **回复消息** — 将 Claude 的回复通过 ClawBot API 发回给微信用户
+5. **多轮对话** — 每个微信用户维护独立的 Claude 会话，支持上下文连续对话
+
+## 项目结构
+
+```
+src/
+├── cli.ts                # CLI 入口（login/start/logout/status）
+├── config.ts             # 配置加载
+├── weixin/
+│   ├── client.ts         # 微信 ClawBot API 客户端
+│   ├── login.ts          # 扫码登录流程
+│   ├── poller.ts         # 消息长轮询
+│   └── types.ts          # API 类型定义
+├── claude/
+│   ├── bridge.ts         # Claude Code CLI 子进程管理
+│   ├── session.ts        # 用户会话管理
+│   └── types.ts          # CLI 输出类型
+├── bot/
+│   ├── controller.ts     # 消息路由与编排
+│   └── chunker.ts        # 长文本分片
+└── state/
+    └── store.ts          # 持久化存储
+```
+
+## 编译构建
+
+```bash
+npm run build    # 编译 TypeScript
+npm start        # 运行编译后的版本
 ```
 
 ## License
