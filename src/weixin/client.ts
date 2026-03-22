@@ -102,13 +102,14 @@ export class WeixinClient {
     text: string,
     contextToken: string,
     messageState: number = 2,
-  ): Promise<void> {
-    const clientId = crypto.randomUUID();
+    clientId?: string,
+  ): Promise<string> {
+    const id = clientId || crypto.randomUUID();
     await this.post("ilink/bot/sendmessage", {
       msg: {
         from_user_id: "",
         to_user_id: toUserId,
-        client_id: clientId,
+        client_id: id,
         message_type: 2, // BOT
         message_state: messageState,
         context_token: contextToken,
@@ -116,6 +117,7 @@ export class WeixinClient {
       },
       base_info: buildBaseInfo(),
     });
+    return id;
   }
 
   async getConfig(userId: string, contextToken?: string): Promise<GetConfigResponse> {

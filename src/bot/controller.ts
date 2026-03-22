@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { log } from "../config.js";
 import type { Config } from "../config.js";
 import type { WeixinClient } from "../weixin/client.js";
@@ -185,8 +186,14 @@ export class BotController {
   }
 
   /**
-   * Stream Claude's response, sending intermediate chunks to WeChat
-   * so the user doesn't wait for the full response.
+   * Stream Claude's response to WeChat.
+   *
+   * Strategy: use a single client_id with message_state updates:
+   *   - GENERATING (1): intermediate updates showing partial text
+   *   - FINISH (2): final complete response
+   *
+   * If the API doesn't support message updates (same client_id),
+   * the user will simply see the final FINISH message.
    */
   private async streamQuery(
     userId: string,
@@ -199,13 +206,18 @@ export class BotController {
 
     const gen = this.bridge.queryStream(prompt, sessionId, resume);
     let fullText = "";
-    let lastSentLength = 0;
     let lastSendTime = Date.now();
+    let hintSent = false;
+
+    // Single client_id for all updates to this response
+    const streamClientId = crypto.randomUUID();
 
     // "Thinking..." hint timer
     const hintTimer = setTimeout(async () => {
       if (fullText.length === 0) {
-        await this.sendReply(userId, "Thinking...", token).catch(() => {});
+        hintSent = true;
+        // Send hint as GENERATING so it gets replaced by the real response
+        await this.weixinClient.sendMessage(userId, "Thinking...", token, 1, streamClientId).catch(() => {});
       }
     }, THINKING_HINT_DELAY_MS);
 
@@ -221,23 +233,17 @@ export class BotController {
             return result;
           }
 
-          // Send remaining unsent text
-          const finalText = result.result || fullText;
-          const unsent = finalText.slice(lastSentLength);
+          // Send final complete message with FINISH state
+          const finalText = result.result || fullText || "(empty response)";
+          const chunks = chunkText(finalText, this.config.wechat.maxMsgLength);
 
-          if (unsent.trim()) {
-            const chunks = chunkText(unsent, this.config.wechat.maxMsgLength);
-            for (const chunk of chunks) {
-              await this.sendReply(userId, chunk, token);
-              if (chunks.length > 1) await sleep(500);
-            }
-          } else if (lastSentLength === 0) {
-            // Nothing was ever sent
-            const chunks = chunkText(finalText || "(empty response)", this.config.wechat.maxMsgLength);
-            for (const chunk of chunks) {
-              await this.sendReply(userId, chunk, token);
-              if (chunks.length > 1) await sleep(500);
-            }
+          // First chunk uses the stream client_id with FINISH to complete the update
+          await this.weixinClient.sendMessage(userId, chunks[0], token, 2, streamClientId);
+
+          // Additional chunks (if any) are separate messages
+          for (let i = 1; i < chunks.length; i++) {
+            await sleep(500);
+            await this.sendReply(userId, chunks[i], token);
           }
 
           return result;
@@ -246,20 +252,13 @@ export class BotController {
         // Accumulate streamed text
         fullText += value;
 
-        // Send intermediate chunk if enough time and text accumulated
+        // Send intermediate update with GENERATING state
         const now = Date.now();
         const timeSinceSend = now - lastSendTime;
-        const unsentLength = fullText.length - lastSentLength;
 
-        if (timeSinceSend >= STREAM_SEND_INTERVAL_MS && unsentLength > 50) {
-          const unsent = fullText.slice(lastSentLength);
-          const breakIdx = findNaturalBreak(unsent);
-          if (breakIdx > 0) {
-            const toSend = unsent.slice(0, breakIdx);
-            await this.sendReply(userId, toSend, token);
-            lastSentLength += breakIdx;
-            lastSendTime = Date.now();
-          }
+        if (timeSinceSend >= STREAM_SEND_INTERVAL_MS && fullText.length > 20) {
+          await this.weixinClient.sendMessage(userId, fullText, token, 1, streamClientId).catch(() => {});
+          lastSendTime = Date.now();
         }
       }
     } finally {
