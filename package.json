@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Bridge Claude Code CLI to WeChat via ClawBot API",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/cli.js",
   "bin": {
     "claude-wechat-bot": "dist/cli.js"
   },

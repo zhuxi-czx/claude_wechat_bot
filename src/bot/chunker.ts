@@ -1,4 +1,5 @@
 export function chunkText(text: string, maxLength: number): string[] {
+  if (maxLength <= 0) maxLength = 4000;
   if (text.length <= maxLength) return [text];
 
   const chunks: string[] = [];
@@ -34,7 +35,6 @@ export function chunkText(text: string, maxLength: number): string[] {
     remaining = remaining.slice(splitAt);
   }
 
-  // Add part markers if multiple chunks
   if (chunks.length > 1) {
     return chunks.map((chunk, i) => `[${i + 1}/${chunks.length}]\n${chunk}`);
   }

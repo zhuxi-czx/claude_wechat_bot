@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createInterface } from "node:readline";
+import crypto from "node:crypto";
 import { log } from "../config.js";
 import type { ClaudeConfig, ClaudeResult } from "./types.js";
 
@@ -21,13 +21,12 @@ export class ClaudeBridge {
     }
 
     args.push("--model", this.config.model);
-    args.push("--verbose");
 
     if (this.config.permissionMode) {
       args.push("--permission-mode", this.config.permissionMode);
     }
 
-    if (this.config.maxBudget) {
+    if (this.config.maxBudget > 0) {
       args.push("--max-budget-usd", String(this.config.maxBudget));
     }
 
@@ -46,7 +45,7 @@ export class ClaudeBridge {
     const args = this.buildArgs(prompt, sessionId, resume);
     const processKey = sessionId || crypto.randomUUID();
 
-    log.debug(`Spawning claude with args: ${args.join(" ")}`);
+    log.debug(`Spawning: claude ${args.join(" ")}`);
 
     return new Promise<ClaudeResult>((resolve, reject) => {
       const proc = spawn("claude", args, {
@@ -77,7 +76,7 @@ export class ClaudeBridge {
         }
 
         try {
-          // stdout may contain non-JSON lines (verbose output), find the JSON result
+          // stdout may contain non-JSON lines, find the result JSON
           const lines = stdout.trim().split("\n");
           let result: ClaudeResult | null = null;
 
@@ -108,7 +107,11 @@ export class ClaudeBridge {
 
       proc.on("error", (err) => {
         this.activeProcesses.delete(processKey);
-        reject(err);
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          reject(new Error("Claude Code CLI not found. Please install it first: https://claude.com/claude-code"));
+        } else {
+          reject(err);
+        }
       });
 
       // Close stdin immediately since we're using -p

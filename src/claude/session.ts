@@ -7,6 +7,17 @@ export class SessionManager {
 
   constructor(store: StateStore) {
     this.store = store;
+    // Load context tokens from persisted sessions
+    this.loadContextTokens();
+  }
+
+  private loadContextTokens(): void {
+    const sessions = this.store.getAllSessions();
+    for (const [userId, data] of sessions) {
+      if (data.contextToken) {
+        this.contextTokens.set(userId, data.contextToken);
+      }
+    }
   }
 
   getSessionId(userId: string): string | undefined {

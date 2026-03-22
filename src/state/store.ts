@@ -87,6 +87,10 @@ export class StateStore {
     this.markDirty();
   }
 
+  getAllSessions(): Map<string, SessionData> {
+    return new Map(this.sessions);
+  }
+
   clearSession(userId: string): void {
     this.sessions.delete(userId);
     this.markDirty();
