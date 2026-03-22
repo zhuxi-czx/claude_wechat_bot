@@ -9,7 +9,7 @@ import { ClaudeBridge } from "./claude/bridge.js";
 import { SessionManager } from "./claude/session.js";
 import { BotController } from "./bot/controller.js";
 
-const BANNER = `Claude WeChat Bot v1.1.0 — by zhuxi <zhuxi.czx@gmail.com>`;
+const BANNER = `Claude WeChat Bot v1.2.0 — by zhuxi <zhuxi.czx@gmail.com>`;
 
 const HELP = `
 ${BANNER}
