@@ -93,12 +93,6 @@ export async function performLogin(client: WeixinClient, store: StateStore): Pro
         // Save the token for the main bot to use
         store.setToken(fullToken);
 
-        // Set the scanning user as admin (owner of this bot)
-        if (status.ilink_user_id) {
-          store.setAdmin(status.ilink_user_id);
-          log.info(`Admin set to: ${status.ilink_user_id}`);
-        }
-
         console.log("\n✅ 与微信连接成功！");
         log.info(`Login successful: accountId=${accountId}, userId=${status.ilink_user_id}`);
 

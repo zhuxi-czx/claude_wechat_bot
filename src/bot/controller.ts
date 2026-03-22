@@ -8,7 +8,6 @@ import type { WeixinMessage } from "../weixin/types.js";
 import { downloadImage } from "../weixin/cdn.js";
 import type { ClaudeBridge } from "../claude/bridge.js";
 import type { SessionManager } from "../claude/session.js";
-import type { StateStore } from "../state/store.js";
 import { chunkText } from "./chunker.js";
 
 function sleep(ms: number): Promise<void> {
@@ -38,7 +37,6 @@ export class BotController {
   private poller: WeixinPoller;
   private bridge: ClaudeBridge;
   private sessions: SessionManager;
-  private store: StateStore;
   private config: Config;
   private userQueues = new Map<string, Promise<void>>();
   private typingTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -52,14 +50,12 @@ export class BotController {
     poller: WeixinPoller,
     bridge: ClaudeBridge,
     sessions: SessionManager,
-    store: StateStore,
     config: Config,
   ) {
     this.weixinClient = weixinClient;
     this.poller = poller;
     this.bridge = bridge;
     this.sessions = sessions;
-    this.store = store;
     this.config = config;
   }
 
@@ -151,15 +147,6 @@ export class BotController {
 
     log.info(`Message from ${userId}: ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`);
 
-    // Whitelist check: allow admin commands (/allow) even from non-whitelisted users
-    if (!this.store.isAllowed(userId) && !text.startsWith("/allow")) {
-      log.warn(`Blocked message from unauthorized user: ${userId}`);
-      if (contextToken) {
-        await this.sendReply(userId, "Sorry, you are not authorized to use this bot.", contextToken);
-      }
-      return;
-    }
-
     // Handle /stop — abort running query for this user
     if (text === "/stop") {
       const activeSession = this.activeQuerySessions.get(userId);
@@ -171,15 +158,6 @@ export class BotController {
         }
       } else if (contextToken) {
         await this.sendReply(userId, "No active query to stop.", contextToken);
-      }
-      return;
-    }
-
-    // Handle /allow commands (whitelist management)
-    const allowResult = this.handleAllowCommand(text, userId);
-    if (allowResult !== null) {
-      if (contextToken) {
-        await this.sendReply(userId, allowResult, contextToken);
       }
       return;
     }
@@ -327,9 +305,6 @@ export class BotController {
         "/system clear  - Clear system prompt",
         "/stop          - Abort current query",
         "/reset         - Clear conversation history",
-        "/allow         - Show whitelist (admin only)",
-        "/allow add <id> - Add user to whitelist",
-        "/allow remove <id> - Remove user",
         "/help          - Show this message",
       ].join("\n");
     }
@@ -377,44 +352,6 @@ export class BotController {
     }
 
     return null;
-  }
-
-  private handleAllowCommand(text: string, userId: string): string | null {
-    if (!text.startsWith("/allow")) return null;
-
-    // /allow — only admin can manage whitelist
-    if (text === "/allow") {
-      if (!this.store.getAdmin()) {
-        return "No whitelist configured. All users can access the bot.";
-      }
-      const users = this.store.getAllowedUsers();
-      const admin = this.store.getAdmin();
-      return [
-        `Whitelist (${users.length} users):`,
-        ...users.map(u => `  ${u === admin ? "[admin] " : ""}${u}`),
-      ].join("\n");
-    }
-
-    if (!this.store.isAdmin(userId)) {
-      return "Only the admin can manage the whitelist.";
-    }
-
-    if (text.startsWith("/allow add ")) {
-      const id = text.slice(11).trim();
-      if (!id) return "Usage: /allow add <user_id>";
-      this.store.addAllowedUser(id);
-      return `User added to whitelist: ${id}`;
-    }
-
-    if (text.startsWith("/allow remove ")) {
-      const id = text.slice(14).trim();
-      if (!id) return "Usage: /allow remove <user_id>";
-      if (this.store.isAdmin(id)) return "Cannot remove admin from whitelist.";
-      this.store.removeAllowedUser(id);
-      return `User removed from whitelist: ${id}`;
-    }
-
-    return "Usage: /allow, /allow add <user_id>, /allow remove <user_id>";
   }
 
   private async sendReply(userId: string, text: string, contextToken: string): Promise<void> {

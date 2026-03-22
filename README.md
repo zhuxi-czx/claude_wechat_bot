@@ -94,9 +94,6 @@ npx tsx src/cli.ts start           # 重新启动，会自动弹出新二维码
 | `/system clear` | 清除系统提示词 |
 | `/stop` | 终止当前正在进行的查询 |
 | `/reset` | 清除对话历史，重新开始 |
-| `/allow` | 查看白名单（仅管理员） |
-| `/allow add <id>` | 添加用户到白名单 |
-| `/allow remove <id>` | 从白名单移除用户 |
 | `/help` | 查看所有命令 |
 
 ## 配置项
@@ -177,10 +174,6 @@ npm start        # 运行编译后的版本
 **Q: 发送图片后 Claude 没有分析图片？**
 
 确认 Claude Code 已认证且权限配置正确。图片会下载到 `data/media/` 目录，bot 通过 `--add-dir` 自动授权 Claude 访问该目录。
-
-**Q: 如何限制谁可以使用 bot？**
-
-扫码绑定时，扫码者自动成为管理员并加入白名单。之后其他用户发消息会被拒绝，管理员可通过 `/allow add <user_id>` 添加授权用户。用户 ID 会在被拒绝时打印在终端日志中。如果不需要白名单（允许所有人），删除 `data/whitelist.json` 并重启即可。
 
 **Q: 启动后立即报 session timeout？**
 
