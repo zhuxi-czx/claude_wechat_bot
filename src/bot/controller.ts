@@ -7,6 +7,23 @@ import type { ClaudeBridge } from "../claude/bridge.js";
 import type { SessionManager } from "../claude/session.js";
 import { chunkText } from "./chunker.js";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Find a natural break point (paragraph or line end) in the text. */
+function findNaturalBreak(text: string): number {
+  const paraIdx = text.lastIndexOf("\n\n");
+  if (paraIdx > text.length * 0.3) return paraIdx + 2;
+  const lineIdx = text.lastIndexOf("\n");
+  if (lineIdx > text.length * 0.3) return lineIdx + 1;
+  const sentenceMatch = text.match(/.*[.!?。！？]\s*/s);
+  if (sentenceMatch && sentenceMatch[0].length > text.length * 0.3) {
+    return sentenceMatch[0].length;
+  }
+  return 0;
+}
+
 /** Minimum interval between streaming chunk sends (ms). */
 const STREAM_SEND_INTERVAL_MS = 5_000;
 /** Send a "thinking" hint after this many ms of silence. */
@@ -20,6 +37,10 @@ export class BotController {
   private config: Config;
   private userQueues = new Map<string, Promise<void>>();
   private typingTimers = new Map<string, ReturnType<typeof setInterval>>();
+  /** Track which users have an active query so /stop can abort it. */
+  private activeQuerySessions = new Map<string, string>();
+  /** Cache typing ticket per user to avoid repeated getConfig calls. */
+  private typingTickets = new Map<string, { ticket: string; botId: string }>();
 
   constructor(
     weixinClient: WeixinClient,
@@ -100,7 +121,22 @@ export class BotController {
 
     log.info(`Message from ${userId}: ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`);
 
-    // Handle commands
+    // Handle /stop — abort running query for this user
+    if (text === "/stop") {
+      const activeSession = this.activeQuerySessions.get(userId);
+      if (activeSession) {
+        const aborted = this.bridge.abort(activeSession);
+        await this.stopTyping(userId);
+        if (contextToken) {
+          await this.sendReply(userId, aborted ? "Query stopped." : "No active query to stop.", contextToken);
+        }
+      } else if (contextToken) {
+        await this.sendReply(userId, "No active query to stop.", contextToken);
+      }
+      return;
+    }
+
+    // Handle other commands
     const cmdResult = this.handleCommand(text);
     if (cmdResult !== null) {
       if (contextToken) {
@@ -113,25 +149,31 @@ export class BotController {
     }
 
     // Start typing indicator
-    await this.startTyping(userId, contextToken);
+    // typing API needs ilink_user_id = msg.to_user_id (the bot's own ID)
+    const botId = msg.to_user_id || "";
+    await this.startTyping(userId, botId, contextToken);
 
     try {
       const existingSessionId = this.sessions.getSessionId(userId);
       const resume = !!existingSessionId;
       const sessionId = existingSessionId || this.sessions.getOrCreateSessionId(userId);
 
-      // Stream query with periodic chunk sending
+      // Track active query for /stop support
+      this.activeQuerySessions.set(userId, sessionId);
+
       const result = await this.streamQuery(userId, text, sessionId, resume);
 
-      // Update session
+      this.activeQuerySessions.delete(userId);
+
       if (result.session_id) {
         this.sessions.setSessionId(userId, result.session_id);
       }
 
-      await this.stopTyping(userId);
+      await this.stopTyping(userId, botId);
       log.info(`Reply sent to ${userId}, cost=$${result.total_cost_usd || 0}`);
     } catch (err) {
-      await this.stopTyping(userId);
+      this.activeQuerySessions.delete(userId);
+      await this.stopTyping(userId, botId);
       log.error(`Claude query failed for ${userId}:`, err);
 
       const token = this.sessions.getContextToken(userId) || contextToken;
@@ -159,12 +201,10 @@ export class BotController {
     let fullText = "";
     let lastSentLength = 0;
     let lastSendTime = Date.now();
-    let hintSent = false;
 
-    // Set up a timer for the "thinking" hint
+    // "Thinking..." hint timer
     const hintTimer = setTimeout(async () => {
       if (fullText.length === 0) {
-        hintSent = true;
         await this.sendReply(userId, "Thinking...", token).catch(() => {});
       }
     }, THINKING_HINT_DELAY_MS);
@@ -174,18 +214,17 @@ export class BotController {
         const { value, done } = await gen.next();
 
         if (done) {
-          clearTimeout(hintTimer);
-          // value is ClaudeResult
           const result = value;
-          const finalText = result.result || fullText;
 
           if (result.is_error) {
             await this.sendReply(userId, `Error: ${result.result}`, token);
             return result;
           }
 
-          // Send any remaining unsent text
+          // Send remaining unsent text
+          const finalText = result.result || fullText;
           const unsent = finalText.slice(lastSentLength);
+
           if (unsent.trim()) {
             const chunks = chunkText(unsent, this.config.wechat.maxMsgLength);
             for (const chunk of chunks) {
@@ -204,17 +243,16 @@ export class BotController {
           return result;
         }
 
-        // value is a text chunk
+        // Accumulate streamed text
         fullText += value;
 
-        // Send intermediate chunk if enough time has passed and enough text accumulated
+        // Send intermediate chunk if enough time and text accumulated
         const now = Date.now();
         const timeSinceSend = now - lastSendTime;
         const unsentLength = fullText.length - lastSentLength;
 
         if (timeSinceSend >= STREAM_SEND_INTERVAL_MS && unsentLength > 50) {
           const unsent = fullText.slice(lastSentLength);
-          // Only send at a natural break point
           const breakIdx = findNaturalBreak(unsent);
           if (breakIdx > 0) {
             const toSend = unsent.slice(0, breakIdx);
@@ -241,19 +279,14 @@ export class BotController {
         "/system        - Show current system prompt",
         "/system <text> - Set system prompt",
         "/system clear  - Clear system prompt",
-        "/reset         - Clear conversation history",
         "/stop          - Abort current query",
+        "/reset         - Clear conversation history",
         "/help          - Show this message",
       ].join("\n");
     }
 
     if (text === "/reset") {
       return "Session cleared. Starting fresh.";
-    }
-
-    if (text === "/stop") {
-      // Will be handled by abort logic via session
-      return "Stopping current query...";
     }
 
     if (text === "/model") {
@@ -305,67 +338,62 @@ export class BotController {
     }
   }
 
-  private async startTyping(userId: string, contextToken?: string): Promise<void> {
+  /**
+   * Start typing indicator.
+   * Key insight from openclaw-weixin: ilink_user_id must be the bot's own ID (msg.to_user_id),
+   * not the sender's user ID. Keepalive every 5 seconds.
+   */
+  private async startTyping(userId: string, botId: string, contextToken?: string): Promise<void> {
     try {
       const token = contextToken || this.sessions.getContextToken(userId);
-      if (!token) return;
-
-      const config = await this.weixinClient.getConfig(userId, token);
-      if (config.typing_ticket) {
-        await this.weixinClient.sendTyping(userId, config.typing_ticket, 1);
-
-        const timer = setInterval(async () => {
-          try {
-            await this.weixinClient.sendTyping(userId, config.typing_ticket!, 1);
-          } catch {
-            // ignore
-          }
-        }, 15_000);
-        this.typingTimers.set(userId, timer);
+      if (!token || !botId) {
+        log.debug(`startTyping: skipping, token=${!!token} botId=${botId}`);
+        return;
       }
-    } catch {
-      // best-effort
+
+      // Get typing ticket (uses ilink_user_id = botId)
+      const config = await this.weixinClient.getConfig(botId, token);
+      if (!config.typing_ticket) {
+        log.debug("startTyping: no typing_ticket returned");
+        return;
+      }
+
+      const ticket = config.typing_ticket;
+      this.typingTickets.set(userId, { ticket, botId });
+
+      await this.weixinClient.sendTyping(botId, ticket, 1);
+      log.debug(`startTyping: sent for botId=${botId}`);
+
+      // Keepalive every 5 seconds (matching openclaw-weixin)
+      const timer = setInterval(async () => {
+        try {
+          await this.weixinClient.sendTyping(botId, ticket, 1);
+        } catch (err) {
+          log.debug(`typing keepalive error: ${err}`);
+        }
+      }, 5_000);
+      this.typingTimers.set(userId, timer);
+    } catch (err) {
+      log.debug(`startTyping failed: ${err}`);
     }
   }
 
-  private async stopTyping(userId: string): Promise<void> {
+  private async stopTyping(userId: string, botId?: string): Promise<void> {
     const timer = this.typingTimers.get(userId);
     if (timer) {
       clearInterval(timer);
       this.typingTimers.delete(userId);
     }
-    try {
-      const token = this.sessions.getContextToken(userId);
-      if (!token) return;
-      const config = await this.weixinClient.getConfig(userId, token);
-      if (config.typing_ticket) {
-        await this.weixinClient.sendTyping(userId, config.typing_ticket, 2);
+
+    const cached = this.typingTickets.get(userId);
+    if (cached) {
+      try {
+        await this.weixinClient.sendTyping(cached.botId, cached.ticket, 2);
+        log.debug(`stopTyping: sent cancel for botId=${cached.botId}`);
+      } catch (err) {
+        log.debug(`stopTyping failed: ${err}`);
       }
-    } catch {
-      // ignore
+      this.typingTickets.delete(userId);
     }
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/** Find a natural break point (paragraph or line end) in the text. */
-function findNaturalBreak(text: string): number {
-  // Prefer paragraph break
-  const paraIdx = text.lastIndexOf("\n\n");
-  if (paraIdx > text.length * 0.3) return paraIdx + 2;
-
-  // Fallback to line break
-  const lineIdx = text.lastIndexOf("\n");
-  if (lineIdx > text.length * 0.3) return lineIdx + 1;
-
-  // Fallback to sentence end
-  const sentenceMatch = text.match(/.*[.!?。！？]\s*/s);
-  if (sentenceMatch && sentenceMatch[0].length > text.length * 0.3) {
-    return sentenceMatch[0].length;
-  }
-
-  return 0;
 }

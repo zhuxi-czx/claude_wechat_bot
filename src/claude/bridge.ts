@@ -72,11 +72,29 @@ export class ClaudeBridge {
     this.activeProcesses.set(processKey, proc);
     proc.stdin?.end();
 
+    // Track process exit
+    let processExited = false;
+    let exitCode: number | null = null;
+    let spawnError: Error | null = null;
+
+    proc.on("close", (code) => {
+      processExited = true;
+      exitCode = code;
+    });
+    proc.on("error", (err) => {
+      processExited = true;
+      spawnError = err;
+    });
+
     // Timeout handling
     let timedOut = false;
     const timeoutTimer = setTimeout(() => {
       timedOut = true;
       proc.kill("SIGTERM");
+      // Force kill after 5 seconds if SIGTERM doesn't work
+      setTimeout(() => {
+        if (!processExited) proc.kill("SIGKILL");
+      }, 5_000);
       log.warn(`Claude process timed out after ${this.config.timeoutMs}ms`);
     }, this.config.timeoutMs);
 
@@ -91,10 +109,10 @@ export class ClaudeBridge {
           const event = JSON.parse(line);
 
           if (event.type === "assistant" && event.message?.content) {
-            // Extract text from content blocks
+            // Extract text from content blocks — append, not overwrite
             for (const block of event.message.content) {
               if (block.type === "text" && block.text) {
-                accumulatedText = block.text;
+                accumulatedText += block.text;
               }
             }
             // Yield new text since last yield
@@ -115,30 +133,31 @@ export class ClaudeBridge {
       this.activeProcesses.delete(processKey);
     }
 
+    // Wait for process to fully exit (if not already)
+    if (!processExited) {
+      await new Promise<void>((resolve) => {
+        proc.on("close", () => resolve());
+        // Safety: resolve after 3s regardless
+        setTimeout(resolve, 3_000);
+      });
+    }
+
+    if (spawnError) {
+      if ((spawnError as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error("Claude Code CLI not found. Install: https://claude.com/claude-code");
+      }
+      throw spawnError;
+    }
+
     if (timedOut) {
       throw new Error("Claude query timed out");
     }
 
-    // Wait for process to fully exit
-    await new Promise<void>((resolve, reject) => {
-      proc.on("close", (code) => {
-        if (code !== 0 && !result) {
-          reject(new Error(`Claude exited with code ${code}`));
-        } else {
-          resolve();
-        }
-      });
-      proc.on("error", (err) => {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          reject(new Error("Claude Code CLI not found. Install: https://claude.com/claude-code"));
-        } else {
-          reject(err);
-        }
-      });
-    });
+    if (exitCode !== 0 && exitCode !== null && !result) {
+      throw new Error(`Claude exited with code ${exitCode}`);
+    }
 
     if (!result) {
-      // Fallback: construct result from accumulated text
       result = {
         type: "result",
         subtype: "success",
@@ -158,11 +177,11 @@ export class ClaudeBridge {
    */
   async query(prompt: string, sessionId?: string, resume = false): Promise<ClaudeResult> {
     const gen = this.queryStream(prompt, sessionId, resume);
-    let result: IteratorResult<string, ClaudeResult>;
-    do {
-      result = await gen.next();
-    } while (!result.done);
-    return result.value;
+    let iter = await gen.next();
+    while (!iter.done) {
+      iter = await gen.next();
+    }
+    return iter.value;
   }
 
   abort(sessionId: string): boolean {
