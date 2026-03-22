@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
+import path from "node:path";
 import { log } from "../config.js";
 import type { Config } from "../config.js";
 import type { WeixinClient } from "../weixin/client.js";
 import type { WeixinPoller } from "../weixin/poller.js";
 import type { WeixinMessage } from "../weixin/types.js";
+import { downloadImage } from "../weixin/cdn.js";
 import type { ClaudeBridge } from "../claude/bridge.js";
 import type { SessionManager } from "../claude/session.js";
 import { chunkText } from "./chunker.js";
@@ -95,22 +97,45 @@ export class BotController {
     const userId = msg.from_user_id!;
     const contextToken = msg.context_token;
 
-    // Extract text content
+    // Extract text and media content
     let text = "";
+    let imagePath: string | null = null;
+
     if (msg.item_list) {
       for (const item of msg.item_list) {
         if (item.type === 1 && item.text_item?.text) {
           text += item.text_item.text;
         } else if (item.type === 3 && item.voice_item?.text) {
           text += item.voice_item.text;
+        } else if (item.type === 2 && !imagePath) {
+          // Download image from CDN
+          const tempDir = path.join(this.config.stateDir, "media");
+          imagePath = await downloadImage(item, tempDir);
+        }
+      }
+      // Also check ref_msg for quoted images
+      for (const item of msg.item_list) {
+        if (item.ref_msg?.message_item?.type === 2 && !imagePath) {
+          const tempDir = path.join(this.config.stateDir, "media");
+          imagePath = await downloadImage(item.ref_msg.message_item, tempDir);
         }
       }
     }
 
     text = text.trim();
+
+    // Build prompt: combine text and image reference
+    if (imagePath) {
+      if (text) {
+        text = `${text}\n\n[The user sent an image. Read and analyze this image file: ${imagePath}]`;
+      } else {
+        text = `[The user sent an image. Read and analyze this image file: ${imagePath}]`;
+      }
+    }
+
     if (!text) {
       if (contextToken) {
-        await this.sendReply(userId, "Sorry, I can only process text and voice messages currently.", contextToken);
+        await this.sendReply(userId, "Sorry, I can only process text, voice, and image messages currently.", contextToken);
       }
       return;
     }

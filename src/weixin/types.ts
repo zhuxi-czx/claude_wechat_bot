@@ -6,10 +6,31 @@ export interface TextItem {
   text?: string;
 }
 
+export interface CDNMedia {
+  encrypt_query_param?: string;
+  aes_key?: string;
+  encrypt_type?: number;
+}
+
+export interface ImageItem {
+  media?: CDNMedia;
+  thumb_media?: CDNMedia;
+  aeskey?: string; // Raw AES key as hex string (preferred over media.aes_key)
+  mid_size?: number;
+  hd_size?: number;
+}
+
+export interface RefMessage {
+  message_item?: MessageItem;
+  title?: string;
+}
+
 export interface MessageItem {
   type?: number; // 1=TEXT, 2=IMAGE, 3=VOICE, 4=FILE, 5=VIDEO
   text_item?: TextItem;
+  image_item?: ImageItem;
   voice_item?: { text?: string };
+  ref_msg?: RefMessage;
 }
 
 export interface WeixinMessage {
