@@ -1,97 +1,83 @@
 # Claude WeChat Bot
 
-Bridge [Claude Code](https://claude.com/claude-code) CLI directly to WeChat via the ClawBot API. No OpenClaw dependency required.
-
-## How It Works
+Bridge [Claude Code](https://claude.com/claude-code) CLI directly to WeChat via the ClawBot API.
 
 ```
-WeChat User ←→ WeChat ClawBot API ←→ claude_wechat_bot ←→ Claude Code CLI
+WeChat User ←→ WeChat ClawBot API ←→ claude-wechat-bot ←→ Claude Code CLI
 ```
-
-1. The bot connects to WeChat using the ClawBot API (long-polling for messages)
-2. When a user sends a message, it spawns a `claude` CLI subprocess
-3. Claude's response is sent back to the WeChat user
-4. Multi-turn conversations are maintained per user via Claude Code's session resumption
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) >= 18
-- [Claude Code](https://claude.com/claude-code) CLI installed and authenticated (`claude` command available)
-- A WeChat account for QR code login
+- [Claude Code](https://claude.com/claude-code) CLI installed and authenticated
 
 ## Quick Start
 
 ```bash
-# Clone
-git clone https://github.com/zhuxi-czx/claude_wechat_bot.git
-cd claude_wechat_bot
+# Step 1: Bind WeChat (scan QR code)
+npx claude-wechat-bot login
 
-# Install dependencies
-npm install
-
-# Copy and edit config (optional)
-cp .env.example .env
-
-# Start the bot (will show QR code on first run)
-npm run dev
+# Step 2: Start the bot
+npx claude-wechat-bot start
 ```
 
-Scan the QR code with WeChat to connect. The bot will start receiving and responding to messages.
+That's it. Scan the QR code with WeChat, and you'll be able to chat with Claude directly in WeChat.
+
+## Commands
+
+```bash
+claude-wechat-bot login      # Scan QR code to bind WeChat
+claude-wechat-bot start      # Start the bot (auto-login if needed)
+claude-wechat-bot logout     # Clear saved credentials
+claude-wechat-bot status     # Show current status
+```
+
+## Install Globally (Optional)
+
+```bash
+npm install -g claude-wechat-bot
+claude-wechat-bot login
+claude-wechat-bot start
+```
 
 ## Configuration
 
-All configuration is via environment variables (or `.env` file):
+All configuration is via environment variables or `.env` file:
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLAUDE_MODEL` | `sonnet` | Claude model: `opus`, `sonnet`, `haiku` |
+| `CLAUDE_MODEL` | `sonnet` | Model: `opus`, `sonnet`, `haiku` |
 | `CLAUDE_SYSTEM_PROMPT` | - | Custom system prompt |
 | `CLAUDE_MAX_BUDGET` | `1.0` | Max cost per query (USD) |
-| `CLAUDE_PERMISSION_MODE` | `default` | Permission mode for Claude CLI |
-| `CLAUDE_ALLOWED_TOOLS` | - | Comma-separated tool whitelist |
-| `WECHAT_BASE_URL` | `https://ilinkai.weixin.qq.com` | WeChat API base URL |
+| `CLAUDE_PERMISSION_MODE` | `default` | Claude CLI permission mode |
+| `CLAUDE_ALLOWED_TOOLS` | - | Tool whitelist (comma-separated) |
 | `WECHAT_MAX_MSG_LENGTH` | `4000` | Max chars per message |
-| `STATE_DIR` | `./data` | State persistence directory |
-| `LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error` |
+| `STATE_DIR` | `./data` | Data directory |
+| `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 
-## Chat Commands
+## WeChat Chat Commands
 
-- `/reset` - Clear conversation history and start fresh
-- `/help` - Show available commands
+- `/reset` — Clear conversation history
+- `/help` — Show commands
 
-## Build
+## How It Works
+
+1. `login` calls the WeChat ClawBot API to generate a QR code
+2. After scanning, a `bot_token` is saved locally
+3. `start` begins long-polling for new WeChat messages
+4. Each message is forwarded to `claude -p` (Claude Code CLI) as a subprocess
+5. Claude's response is sent back to the WeChat user via `sendMessage` API
+6. Per-user sessions are maintained via `--resume` for multi-turn conversations
+
+## Development
 
 ```bash
-npm run build    # Compile TypeScript
-npm start        # Run compiled version
-```
-
-## Re-login
-
-```bash
-npm run dev -- --login
-```
-
-## Architecture
-
-```
-src/
-├── index.ts              # Entry point
-├── config.ts             # Configuration
-├── weixin/
-│   ├── client.ts         # WeChat HTTP API client
-│   ├── login.ts          # QR code login flow
-│   ├── poller.ts         # Long-poll message loop
-│   └── types.ts          # API type definitions
-├── claude/
-│   ├── bridge.ts         # Claude CLI subprocess manager
-│   ├── session.ts        # Per-user session tracking
-│   └── types.ts          # CLI output types
-├── bot/
-│   ├── controller.ts     # Message routing & orchestration
-│   └── chunker.ts        # Long text splitting
-└── state/
-    └── store.ts          # Persistent state (token, sessions)
+git clone https://github.com/zhuxi-czx/claude_wechat_bot.git
+cd claude_wechat_bot
+npm install
+npm run dev          # tsx hot-reload
+npm run build        # compile TypeScript
+npm start            # run compiled version
 ```
 
 ## License
