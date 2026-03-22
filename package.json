@@ -1,0 +1,27 @@
+{
+  "name": "claude-wechat-bot",
+  "version": "0.1.0",
+  "description": "Bridge Claude Code CLI to WeChat via ClawBot API",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "login": "tsx src/index.ts --login"
+  },
+  "keywords": ["claude", "wechat", "bot", "claude-code"],
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
