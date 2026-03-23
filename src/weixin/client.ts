@@ -105,6 +105,7 @@ export class WeixinClient {
     clientId?: string,
   ): Promise<string> {
     const id = clientId || crypto.randomUUID();
+    log.info(`sendMessage: to=${toUserId.slice(0,10)}... state=${messageState} clientId=${id.slice(0,8)}... hasContextToken=${!!contextToken} textLen=${text.length}`);
     await this.post("ilink/bot/sendmessage", {
       msg: {
         from_user_id: "",

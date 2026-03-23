@@ -29,8 +29,6 @@ function findNaturalBreak(text: string): number {
 
 /** Minimum interval between streaming chunk sends (ms). */
 const STREAM_SEND_INTERVAL_MS = 5_000;
-/** Send a "thinking" hint after this many ms of silence. */
-const THINKING_HINT_DELAY_MS = 15_000;
 
 export class BotController {
   private weixinClient: WeixinClient;
@@ -237,19 +235,10 @@ export class BotController {
     const gen = this.bridge.queryStream(prompt, sessionId, resume);
     let fullText = "";
     let lastSendTime = Date.now();
-    let hintSent = false;
+    let streamStarted = false; // Whether we've sent any GENERATING message
 
     // Single client_id for all updates to this response
     const streamClientId = crypto.randomUUID();
-
-    // "Thinking..." hint timer
-    const hintTimer = setTimeout(async () => {
-      if (fullText.length === 0) {
-        hintSent = true;
-        // Send hint as GENERATING so it gets replaced by the real response
-        await this.weixinClient.sendMessage(userId, "Thinking...", token, 1, streamClientId).catch(() => {});
-      }
-    }, THINKING_HINT_DELAY_MS);
 
     try {
       while (true) {
@@ -259,18 +248,27 @@ export class BotController {
           const result = value;
 
           if (result.is_error) {
-            await this.sendReply(userId, `Error: ${result.result}`, token);
+            if (streamStarted) {
+              // Clear the GENERATING state with a FINISH error
+              await this.weixinClient.sendMessage(userId, `Error: ${result.result}`, token, 2, streamClientId);
+            } else {
+              await this.sendReply(userId, `Error: ${result.result}`, token);
+            }
             return result;
           }
 
-          // Send final complete message with FINISH state
           const finalText = result.result || fullText || "(empty response)";
           const chunks = chunkText(finalText, this.config.wechat.maxMsgLength);
 
-          // First chunk uses the stream client_id with FINISH to complete the update
-          await this.weixinClient.sendMessage(userId, chunks[0], token, 2, streamClientId);
+          if (streamStarted) {
+            // Complete the stream: send FINISH with same client_id
+            await this.weixinClient.sendMessage(userId, chunks[0], token, 2, streamClientId);
+          } else {
+            // No stream was started, send as normal message
+            await this.sendReply(userId, chunks[0], token);
+          }
 
-          // Additional chunks (if any) are separate messages
+          // Additional chunks are always separate messages
           for (let i = 1; i < chunks.length; i++) {
             await sleep(500);
             await this.sendReply(userId, chunks[i], token);
@@ -287,12 +285,13 @@ export class BotController {
         const timeSinceSend = now - lastSendTime;
 
         if (timeSinceSend >= STREAM_SEND_INTERVAL_MS && fullText.length > 20) {
+          streamStarted = true;
           await this.weixinClient.sendMessage(userId, fullText, token, 1, streamClientId).catch(() => {});
           lastSendTime = Date.now();
         }
       }
     } finally {
-      clearTimeout(hintTimer);
+      // cleanup if needed
     }
   }
 
