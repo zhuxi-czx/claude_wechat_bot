@@ -257,7 +257,8 @@ export class BotController {
             return result;
           }
 
-          const finalText = result.result || fullText || "(empty response)";
+          const finalText = result.result || fullText ||
+            "No response from Claude. Please check:\n1. Run `claude -p \"hi\"` in terminal to verify Claude Code works\n2. Check if your model and API key are configured correctly\n3. Check if your API quota is available";
           const chunks = chunkText(finalText, this.config.wechat.maxMsgLength);
 
           if (streamStarted) {
