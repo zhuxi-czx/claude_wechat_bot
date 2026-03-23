@@ -205,7 +205,11 @@ export class BotController {
       const token = this.sessions.getContextToken(userId) || contextToken;
       if (token) {
         const errMsg = err instanceof Error ? err.message : String(err);
-        await this.sendReply(userId, `Sorry, an error occurred: ${errMsg.slice(0, 200)}`, token).catch(() => {});
+        const userMsg = errMsg === "undefined" || !errMsg
+          ? "Claude processing timed out. Please try a simpler question or increase CLAUDE_TIMEOUT_MS."
+          : errMsg.slice(0, 200);
+        // Send as FINISH (message_state=2) to clear any lingering GENERATING state
+        await this.weixinClient.sendMessage(userId, `Sorry, an error occurred: ${userMsg}`, token, 2).catch(() => {});
       }
     }
   }
@@ -398,7 +402,7 @@ export class BotController {
       }, 5_000);
       this.typingTimers.set(userId, timer);
     } catch (err) {
-      log.debug(`startTyping failed: ${err}`);
+      log.warn(`startTyping failed: ${err}`);
     }
   }
 

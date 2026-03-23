@@ -1,0 +1,17 @@
+
+> claude-wechat-bot@1.3.0 dev
+> tsx src/cli.ts start
+
+Claude WeChat Bot v1.3.0 — by zhuxi <zhuxi.czx@gmail.com>
+[INFO] 2026-03-22T13:01:03.361Z Claude WeChat Bot starting...
+[INFO] 2026-03-22T13:01:03.362Z WeChat poller started
+[INFO] 2026-03-22T13:01:03.379Z Bot controller started
+[INFO] 2026-03-22T13:01:03.388Z Bot is running. Press Ctrl+C to stop.
+[INFO] 2026-03-22T13:01:03.615Z Message from o9cq801y8atHi1cC8DWTJ_OTlJ5A@im.wechat: 是我设计的
+[INFO] 2026-03-22T13:01:05.717Z Reply sent to o9cq801y8atHi1cC8DWTJ_OTlJ5A@im.wechat, cost=$0
+[INFO] 2026-03-22T13:01:13.359Z Message from o9cq801y8atHi1cC8DWTJ_OTlJ5A@im.wechat: 还在吗
+[INFO] 2026-03-22T13:01:15.121Z Reply sent to o9cq801y8atHi1cC8DWTJ_OTlJ5A@im.wechat, cost=$0
+[INFO] 2026-03-22T13:01:24.935Z Received SIGINT, shutting down...
+[INFO] 2026-03-22T13:01:24.936Z WeChat poller stopped
+[INFO] 2026-03-22T13:01:24.937Z Bot controller stopped
+[INFO] 2026-03-22T13:01:24.937Z Goodbye!

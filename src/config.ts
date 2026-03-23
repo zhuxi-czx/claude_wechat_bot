@@ -31,7 +31,7 @@ export function loadConfig(): Config {
       maxBudget: parseFloat(process.env.CLAUDE_MAX_BUDGET || "1.0"),
       permissionMode: process.env.CLAUDE_PERMISSION_MODE || "default",
       allowedTools: process.env.CLAUDE_ALLOWED_TOOLS || undefined,
-      timeoutMs: parseInt(process.env.CLAUDE_TIMEOUT_MS || "300000", 10), // 5 min default
+      timeoutMs: parseInt(process.env.CLAUDE_TIMEOUT_MS || "600000", 10), // 10 min default
       maxConcurrent: parseInt(process.env.CLAUDE_MAX_CONCURRENT || "3", 10),
     },
     stateDir: process.env.STATE_DIR || "./data",
