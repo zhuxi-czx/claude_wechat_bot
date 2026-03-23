@@ -177,6 +177,7 @@ export class BotController {
     // Start typing indicator
     // typing API needs ilink_user_id = msg.to_user_id (the bot's own ID)
     const botId = msg.to_user_id || "";
+    log.info(`typing: botId=${botId}, userId=${userId}, hasContextToken=${!!contextToken}`);
     await this.startTyping(userId, botId, contextToken);
 
     try {
@@ -375,14 +376,17 @@ export class BotController {
     try {
       const token = contextToken || this.sessions.getContextToken(userId);
       if (!token || !botId) {
-        log.debug(`startTyping: skipping, token=${!!token} botId=${botId}`);
+        log.warn(`startTyping: skipping, token=${!!token} botId=${botId}`);
         return;
       }
 
       // Get typing ticket (uses ilink_user_id = botId)
-      const config = await this.weixinClient.getConfig(botId, token);
+      // getConfig uses the sender's user ID, NOT the bot ID
+      log.info(`startTyping: getConfig for userId=${userId}`);
+      const config = await this.weixinClient.getConfig(userId, token);
+      log.info(`startTyping: getConfig result: typing_ticket=${!!config.typing_ticket}, ret=${config.ret}`);
       if (!config.typing_ticket) {
-        log.debug("startTyping: no typing_ticket returned");
+        log.warn("startTyping: no typing_ticket returned");
         return;
       }
 
@@ -390,7 +394,7 @@ export class BotController {
       this.typingTickets.set(userId, { ticket, botId });
 
       await this.weixinClient.sendTyping(botId, ticket, 1);
-      log.debug(`startTyping: sent for botId=${botId}`);
+      log.info(`startTyping: typing sent for botId=${botId}`);
 
       // Keepalive every 5 seconds (matching openclaw-weixin)
       const timer = setInterval(async () => {
