@@ -218,6 +218,11 @@ npm start        # 运行编译后的版本
 
 使用 `nohup ... & disown` 方式后台运行（见上方"后台运行"步骤）。
 
+## Related Projects
+
+- [claude_telegram_bot](https://github.com/zhuxi-czx/claude_telegram_bot) — Bridge Claude Code to Telegram
+- [claude_discord_bot](https://github.com/zhuxi-czx/claude_discord_bot) — Bridge Claude Code to Discord
+
 ## 反馈与联系
 
 如有问题或建议，欢迎：
