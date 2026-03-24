@@ -2,7 +2,7 @@
 
 > **Claude Code Bridge Series** by [zhuxi](https://github.com/zhuxi-czx) — Bridge Claude Code to any platform
 >
-> [**WeChat**](https://github.com/zhuxi-czx/claude_wechat_bot) · [Telegram](https://github.com/zhuxi-czx/claude_telegram_bot) · [Discord](https://github.com/zhuxi-czx/claude_discord_bot)
+> [**WeChat**](https://github.com/zhuxi-czx/claude_wechat_bot) · [Telegram](https://github.com/zhuxi-czx/claude_telegram_bot) · [Discord](https://github.com/zhuxi-czx/claude_discord_bot) · [Awesome Claude Code](https://github.com/zhuxi-czx/-awesome-claude-code)
 
 让 Claude Code 直接接入微信 —— 通过微信 ClawBot 开放能力，无需额外服务。
 
