@@ -69,9 +69,14 @@ export class ClaudeBridge {
 
     log.debug(`Spawning stream: claude ${args.slice(0, 4).join(" ")}...`);
 
+    // Clean environment: remove CLAUDECODE markers that interfere with nested CLI auth
+    const cleanEnv = { ...process.env };
+    delete cleanEnv.CLAUDECODE;
+    delete cleanEnv.CLAUDE_CODE_ENTRYPOINT;
+
     const proc = spawn("claude", args, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env },
+      env: cleanEnv,
       ...(this.config.workingDir ? { cwd: this.config.workingDir } : {}),
     });
 
