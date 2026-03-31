@@ -169,6 +169,9 @@ export class BotController {
       if (text === "/reset") {
         this.sessions.clearSession(userId);
       }
+      if (text.startsWith("/project ") && text.slice(9).trim() !== "") {
+        this.sessions.clearAllSessions();
+      }
       return;
     }
 
@@ -250,9 +253,9 @@ export class BotController {
           if (result.is_error) {
             if (streamStarted) {
               // Clear the GENERATING state with a FINISH error
-              await this.weixinClient.sendMessage(userId, `Error: ${result.result}`, token, 2, streamClientId);
+              await this.weixinClient.sendMessage(userId, `Error: ${result.result || "Claude returned an error with no details. Check terminal logs."}`, token, 2, streamClientId);
             } else {
-              await this.sendReply(userId, `Error: ${result.result}`, token);
+              await this.sendReply(userId, `Error: ${result.result || "Claude returned an error with no details. Check terminal logs."}`, token);
             }
             return result;
           }
@@ -352,11 +355,11 @@ export class BotController {
       const dir = text.slice(9).trim();
       if (dir === "clear") {
         this.bridge.config.workingDir = undefined;
-        return "Project directory cleared. Claude will run in bot's working directory.";
+        return "Project directory cleared. Claude will run in bot's working directory.\nAll sessions cleared.";
       }
       this.bridge.config.workingDir = dir;
       log.info(`Project directory set to: ${dir}`);
-      return `Project directory set to: ${dir}`;
+      return `Project directory set to: ${dir}\nAll sessions cleared — conversations will start fresh in the new project.`;
     }
 
     if (text === "/system") {

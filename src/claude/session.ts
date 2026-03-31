@@ -50,6 +50,13 @@ export class SessionManager {
     this.contextTokens.delete(userId);
   }
 
+  clearAllSessions(): void {
+    for (const [userId] of this.store.getAllSessions()) {
+      this.store.clearSession(userId);
+    }
+    this.contextTokens.clear();
+  }
+
   setContextToken(userId: string, token: string): void {
     this.contextTokens.set(userId, token);
     const session = this.store.getSession(userId);
