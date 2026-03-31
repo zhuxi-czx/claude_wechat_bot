@@ -306,6 +306,9 @@ export class BotController {
         "/budget        - Show current budget",
         "/budget <n>    - Set max budget per query (USD)",
         "/system        - Show current system prompt",
+        "/project       - Show current project directory",
+        "/project <path>- Set Claude's working directory",
+        "/project clear - Clear project directory",
         "/system <text> - Set system prompt",
         "/system clear  - Clear system prompt",
         "/stop          - Abort current query",
@@ -338,6 +341,22 @@ export class BotController {
       this.bridge.config.maxBudget = val;
       log.info(`Budget set to: $${val}`);
       return `Max budget set to: $${val} per query`;
+    }
+
+    if (text === "/project") {
+      return this.bridge.config.workingDir
+        ? `Current project directory: ${this.bridge.config.workingDir}`
+        : "No project directory set. Claude runs in bot's working directory.";
+    }
+    if (text.startsWith("/project ")) {
+      const dir = text.slice(9).trim();
+      if (dir === "clear") {
+        this.bridge.config.workingDir = undefined;
+        return "Project directory cleared. Claude will run in bot's working directory.";
+      }
+      this.bridge.config.workingDir = dir;
+      log.info(`Project directory set to: ${dir}`);
+      return `Project directory set to: ${dir}`;
     }
 
     if (text === "/system") {

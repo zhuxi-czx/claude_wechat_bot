@@ -14,6 +14,7 @@ export interface Config {
     timeoutMs: number;
     maxConcurrent: number;
     addDirs?: string[];
+    workingDir?: string;
   };
   stateDir: string;
   logLevel: "debug" | "info" | "warn" | "error";
@@ -33,6 +34,7 @@ export function loadConfig(): Config {
       allowedTools: process.env.CLAUDE_ALLOWED_TOOLS || undefined,
       timeoutMs: parseInt(process.env.CLAUDE_TIMEOUT_MS || "600000", 10), // 10 min default
       maxConcurrent: parseInt(process.env.CLAUDE_MAX_CONCURRENT || "3", 10),
+      workingDir: process.env.CLAUDE_WORKING_DIR || undefined,
     },
     stateDir: process.env.STATE_DIR || "./data",
     logLevel: (process.env.LOG_LEVEL as Config["logLevel"]) || "info",

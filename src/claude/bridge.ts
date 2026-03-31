@@ -72,6 +72,7 @@ export class ClaudeBridge {
     const proc = spawn("claude", args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
+      ...(this.config.workingDir ? { cwd: this.config.workingDir } : {}),
     });
 
     this.activeProcesses.set(processKey, proc);

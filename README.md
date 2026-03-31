@@ -123,6 +123,9 @@ nohup npx tsx src/cli.ts start > bot.log 2>&1 & disown
 | `/budget 2.0` | 设置单次对话最大费用（美元） |
 | `/system <提示词>` | 设置自定义系统提示词 |
 | `/system clear` | 清除系统提示词 |
+| `/project` | 查看当前项目目录 |
+| `/project <路径>` | 设置 Claude 的工作目录 |
+| `/project clear` | 清除项目目录设置 |
 | `/stop` | 终止当前正在进行的查询 |
 | `/reset` | 清除对话历史，重新开始 |
 | `/help` | 查看所有命令 |
@@ -136,6 +139,7 @@ nohup npx tsx src/cli.ts start > bot.log 2>&1 & disown
 | `CLAUDE_MODEL` | `sonnet` | Claude 模型：`opus` / `sonnet` / `haiku` |
 | `CLAUDE_SYSTEM_PROMPT` | - | 自定义系统提示词 |
 | `CLAUDE_MAX_BUDGET` | `1.0` | 单次对话最大费用（美元） |
+| `CLAUDE_WORKING_DIR` | - | Claude 的工作目录（项目路径） |
 | `CLAUDE_PERMISSION_MODE` | `default` | Claude CLI 权限模式（见下方说明） |
 | `CLAUDE_ALLOWED_TOOLS` | - | 允许的工具白名单（逗号分隔） |
 | `CLAUDE_TIMEOUT_MS` | `300000` | 单次查询超时（毫秒，默认 5 分钟） |
@@ -165,6 +169,7 @@ echo "CLAUDE_PERMISSION_MODE=auto" >> .env
 4. **调用 Claude** — 将消息转发给本地 `claude` CLI 子进程处理，支持完整的 Claude Code 能力（包括图片分析）
 5. **流式回复** — Claude 边生成边更新微信消息，使用 `message_state` 实现单条消息实时刷新
 6. **多轮对话** — 每个微信用户维护独立的 Claude 会话，支持上下文连续对话
+7. **项目目录** — 通过 `.env` 或 `/project` 命令配置 Claude 的工作目录，让 Claude 在指定项目中工作
 
 ## 项目结构
 
